@@ -4,7 +4,7 @@ SHELL = /bin/sh
 CC    = gcc
 
 CPPFLAGS     = -Iinclude
-CFLAGS       = -fPIC -fno-strict-aliasing -Wall -Werror -m64 -g -pthread
+CFLAGS       = -fPIC -fno-strict-aliasing -Wall -Werror -g -pthread
 DEPFLAGS     = -MMD -MP -MT $@ -MF $(@D)/$(*F).d
 LDFLAGS      = -shared
 DEBUGFLAGS   = -O0 -D_DEBUG -D_REENTRANT
