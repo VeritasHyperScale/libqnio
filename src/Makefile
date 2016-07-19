@@ -1,8 +1,8 @@
 SHELL = /bin/sh
 CC    = gcc
 
-CFLAGS       = -fPIC -fno-strict-aliasing -Wall -Werror -m64 -Iinclude -g
-LDFLAGS      = -shared -lpthread
+CFLAGS       = -fPIC -fno-strict-aliasing -Wall -Werror -m64 -Iinclude -g -pthread
+LDFLAGS      = -shared
 DEBUGFLAGS   = -O0 -D_DEBUG -D_REENTRANT
 RELEASEFLAGS = -03 -D_REENTRANT
 
