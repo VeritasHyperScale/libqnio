@@ -218,12 +218,12 @@ void mark_pending_noconn(struct conn *c);
 int create_and_bind(char *node, char *port);
 void clear_msg(struct qnio_msg *msg);
 
-#define nioErr(...) {\
+#define nioErr(fmt, ...) {\
         time_t t = time(0); \
         char buf[9] = {0}; \
         strftime(buf, 9, "%H:%M:%S", localtime(&t)); \
-        fprintf(stderr, "[%s: %lu] %d: %s():\t", buf, pthread_self(), __LINE__, __FUNCTION__);\
-        fprintf(stderr, __VA_ARGS__);\
+        fprintf(stderr, "[%s: %lu] %d: %s():\t" fmt "\n",\
+		buf, pthread_self(), __LINE__, __FUNCTION__, ##__VA_ARGS__);\
 }
 
 #define nioDbg nioErr
