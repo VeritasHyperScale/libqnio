@@ -670,7 +670,7 @@ qemu_iio_close(void *qnio_ctx, uint32_t cfd)
 }
 
 void *
-qemu_initialize_lock(void)
+qemu_ck_initialize_lock(void)
 {
     ck_spinlock_fas_t *lock;
 
@@ -680,7 +680,7 @@ qemu_initialize_lock(void)
 }
 
 void
-qemu_spin_lock(void *ptr)
+qemu_ck_spin_lock(void *ptr)
 {
     ck_spinlock_fas_t *lock = (ck_spinlock_fas_t *)ptr;
 
@@ -688,7 +688,7 @@ qemu_spin_lock(void *ptr)
 }
 
 void
-qemu_spin_unlock(void *ptr)
+qemu_ck_spin_unlock(void *ptr)
 {
     ck_spinlock_fas_t *lock = (ck_spinlock_fas_t *)ptr;
 
@@ -696,7 +696,7 @@ qemu_spin_unlock(void *ptr)
 }
 
 void
-qemu_destroy_lock(void *ptr)
+qemu_ck_destroy_lock(void *ptr)
 {
     ck_spinlock_fas_t *lock = (ck_spinlock_fas_t *)ptr;
 
