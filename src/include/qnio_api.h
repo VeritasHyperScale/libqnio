@@ -13,6 +13,18 @@
 
 #include <inttypes.h>
 
+typedef enum {
+    VDISK_AIO_READ,
+    VDISK_AIO_WRITE,
+    VDISK_STAT,
+    VDISK_TRUNC,
+    VDISK_AIO_FLUSH,
+    VDISK_AIO_RECLAIM,
+    VDISK_GET_GEOMETRY,
+    VDISK_CHECK_IO_FAILOVER_READY,
+    VDISK_AIO_LAST_CMD
+} VDISKAIOCmd;
+
 /*
  * API for consumers of libqnioshim.so
  */

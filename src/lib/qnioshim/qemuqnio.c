@@ -11,6 +11,7 @@
 #include "qemuqnio.h"
 #include "io_qnio.h"
 #include "cJSON.h"
+#include "qnio_api.h"
 
 #define QI_DEFAULT_LANES                    8
 
@@ -37,10 +38,11 @@ void (qeumu_iio_cb_t) (uint32_t rfd, uint32_t reason, void *ctx,
                        iio_msg *reply);
 
 void *
-qemu_iio_init(iio_cb_t cb)
+qemu_iio_init(void *cb)
 {
+    iio_cb_t cbz = cb;
     qnioDbg("QEMU NIO Library version %d initialized\n", qemu_qnio_version);
-    return (iio_init(cb));
+    return (iio_init(cbz));
 }
 
 int32_t
@@ -104,7 +106,7 @@ qemu_iio_extract_msg_opcode(void * ptr)
     return(msg->iio_opcode);
 }
 
-inline size_t qemu_calculate_iovec_size(struct iovec *iov, int niov)
+size_t qemu_calculate_iovec_size(struct iovec *iov, int niov)
 {
     int i;
     size_t size = 0;
@@ -126,7 +128,7 @@ inline size_t qemu_calculate_iovec_size(struct iovec *iov, int niov)
  * NOTE: This does not check if the buffer is large enough or not
  *	Caller needs to ensure enough memory is allocated.
  */
-inline void qemu_copy_iov_to_buffer(struct iovec *iov, int niov, void *buf)
+void qemu_copy_iov_to_buffer(struct iovec *iov, int niov, void *buf)
 {
     int i;
     size_t offset = 0;
@@ -150,7 +152,7 @@ inline void qemu_copy_iov_to_buffer(struct iovec *iov, int niov, void *buf)
  * of memory pointed to by the vector into memory buffer before returning
  * NOTE: The caller is supposed to free the memory
  */
-inline void *qemu_convert_iovector_to_buffer(struct iovec *iov, int niov,
+void *qemu_convert_iovector_to_buffer(struct iovec *iov, int niov,
                                             int copy, size_t sector)
 {
     void *buf = NULL;

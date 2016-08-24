@@ -34,18 +34,6 @@
 
 #define qnioDbg qnioErr
 
-typedef enum {
-    VDISK_AIO_READ,
-    VDISK_AIO_WRITE,
-    VDISK_STAT,
-    VDISK_TRUNC,
-    VDISK_AIO_FLUSH,
-    VDISK_AIO_RECLAIM,
-    VDISK_GET_GEOMETRY,
-    VDISK_CHECK_IO_FAILOVER_READY,
-    VDISK_AIO_LAST_CMD
-} VDISKAIOCmd;
-
 typedef void *qemu_aio_ctx_t;
 typedef void (*qnio_callback_t)(ssize_t retval, void *arg);
 
