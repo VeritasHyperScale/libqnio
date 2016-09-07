@@ -23,7 +23,7 @@
 /*
  * Bump up the version everytime this file is modified
  */
-int qemu_qnio_version = 31;
+int qnio_version = 31;
 
 #define QNIO_QEMU_VDISK_SIZE_STR              "vdisk_size_bytes"
 #define QNIO_QEMU_VDISK_GEOM_HEADS_U32        "vdisk_geom_heads"
@@ -38,15 +38,15 @@ void (qeumu_iio_cb_t) (uint32_t rfd, uint32_t reason, void *ctx,
                        iio_msg *reply);
 
 void *
-qemu_iio_init(void *cb)
+qnio_iio_init(void *cb)
 {
     iio_cb_t cbz = cb;
-    qnioDbg("QEMU NIO Library version %d initialized\n", qemu_qnio_version);
+    qnioDbg("QEMU NIO Library version %d initialized\n", qnio_version);
     return (iio_init(cbz));
 }
 
 int32_t
-qemu_open_iio_conn(void *qnio_ctx, const char *uri, uint32_t flags)
+qnio_open_iio_conn(void *qnio_ctx, const char *uri, uint32_t flags)
 {
     int ret;
 
@@ -55,7 +55,7 @@ qemu_open_iio_conn(void *qnio_ctx, const char *uri, uint32_t flags)
 }
 
 int32_t
-qemu_iio_devopen(void *qnio_ctx, int32_t cfd, const char *devpath,
+qnio_iio_devopen(void *qnio_ctx, int32_t cfd, const char *devpath,
                  uint32_t flags)
 {
     int fd = iio_devopen(qnio_ctx, cfd, devpath, flags);
@@ -64,13 +64,13 @@ qemu_iio_devopen(void *qnio_ctx, int32_t cfd, const char *devpath,
 }
 
 int32_t
-qemu_iio_devclose(void *qnio_ctx, int32_t cfd, uint32_t rfd)
+qnio_iio_devclose(void *qnio_ctx, int32_t cfd, uint32_t rfd)
 {
     return (iio_devclose(qnio_ctx, cfd, rfd));
 }
 
 uint32_t
-qemu_iio_extract_msg_error(void * ptr)
+qnio_iio_extract_msg_error(void * ptr)
 {
     assert (ptr != NULL);
     struct iio_msg_t *msg = (struct iio_msg_t *)ptr;
@@ -78,7 +78,7 @@ qemu_iio_extract_msg_error(void * ptr)
 }
 
 size_t
-qemu_iio_extract_msg_size(void * ptr)
+qnio_iio_extract_msg_size(void * ptr)
 {
     assert (ptr != NULL);
     struct iio_msg_t *msg = (struct iio_msg_t *)ptr;
@@ -86,7 +86,7 @@ qemu_iio_extract_msg_size(void * ptr)
 }
 
 void
-qemu_iio_release_msg(void *ptr)
+qnio_iio_release_msg(void *ptr)
 {
     struct iio_msg_t *msg = (struct iio_msg_t *)ptr;
 
@@ -99,14 +99,14 @@ qemu_iio_release_msg(void *ptr)
 }
 
 uint32_t
-qemu_iio_extract_msg_opcode(void * ptr)
+qnio_iio_extract_msg_opcode(void * ptr)
 {
     assert (ptr != NULL);
     struct iio_msg_t *msg = (struct iio_msg_t *)ptr;
     return(msg->iio_opcode);
 }
 
-size_t qemu_calculate_iovec_size(struct iovec *iov, int niov)
+size_t qnio_calculate_iovec_size(struct iovec *iov, int niov)
 {
     int i;
     size_t size = 0;
@@ -128,7 +128,7 @@ size_t qemu_calculate_iovec_size(struct iovec *iov, int niov)
  * NOTE: This does not check if the buffer is large enough or not
  *	Caller needs to ensure enough memory is allocated.
  */
-void qemu_copy_iov_to_buffer(struct iovec *iov, int niov, void *buf)
+void qnio_copy_iov_to_buffer(struct iovec *iov, int niov, void *buf)
 {
     int i;
     size_t offset = 0;
@@ -152,7 +152,7 @@ void qemu_copy_iov_to_buffer(struct iovec *iov, int niov, void *buf)
  * of memory pointed to by the vector into memory buffer before returning
  * NOTE: The caller is supposed to free the memory
  */
-void *qemu_convert_iovector_to_buffer(struct iovec *iov, int niov,
+void *qnio_convert_iovector_to_buffer(struct iovec *iov, int niov,
                                             int copy, size_t sector)
 {
     void *buf = NULL;
@@ -163,7 +163,7 @@ void *qemu_convert_iovector_to_buffer(struct iovec *iov, int niov,
 	return buf;
     }
 
-    size = qemu_calculate_iovec_size(iov, niov);
+    size = qnio_calculate_iovec_size(iov, niov);
     (void)posix_memalign(&buf, sector, size);
     if (!buf)
     {
@@ -174,7 +174,7 @@ void *qemu_convert_iovector_to_buffer(struct iovec *iov, int niov,
     }
     if (copy == QEMU_DO_COPY)
     {
-    	qemu_copy_iov_to_buffer(iov, niov, buf);
+    	qnio_copy_iov_to_buffer(iov, niov, buf);
     }
 
     return buf;
@@ -190,7 +190,7 @@ void *qemu_convert_iovector_to_buffer(struct iovec *iov, int niov,
  *	             above fails return
  *	-1. Does not continue checking for further IO vectors
  */
-int qemu_is_iovector_read_aligned(struct iovec *iov, int niov, size_t sector)
+int qnio_is_iovector_read_aligned(struct iovec *iov, int niov, size_t sector)
 {
     int i;
 
@@ -211,7 +211,7 @@ int qemu_is_iovector_read_aligned(struct iovec *iov, int niov, size_t sector)
 }
 
 int32_t
-qemu_iio_writev(void *qnio_ctx, uint32_t rfd, struct iovec *iov, int iovcnt,
+qnio_iio_writev(void *qnio_ctx, uint32_t rfd, struct iovec *iov, int iovcnt,
                 uint64_t offset, void *ctx, uint32_t flags)
 {
     struct iovec    cur;
@@ -226,12 +226,12 @@ qemu_iio_writev(void *qnio_ctx, uint32_t rfd, struct iovec *iov, int iovcnt,
     cur.iov_len = 0;
 
     /*
-     * qnioDbg("qemu_iio_writev: acb= %p offset = %lu, iovcnt = %d\n",
+     * qnioDbg("qnio_iio_writev: acb= %p offset = %lu, iovcnt = %d\n",
      *           ctx, offset, iovcnt);
      */
     ret = iio_writev(qnio_ctx, rfd, iov, iovcnt, offset, ctx, flags);
     /*
-     * qnioDbg("qemu_iio_writev: iio_writev returned %d\n", ret);
+     * qnioDbg("qnio_iio_writev: iio_writev returned %d\n", ret);
      */
     if (ret == -1 && errno == EFBIG)
     {
@@ -399,7 +399,7 @@ qemu_iio_writev(void *qnio_ctx, uint32_t rfd, struct iovec *iov, int iovcnt,
  *
  */
 int32_t
-qemu_iio_readv(void *qnio_ctx, uint32_t rfd, struct iovec *iov, int iovcnt,
+qnio_iio_readv(void *qnio_ctx, uint32_t rfd, struct iovec *iov, int iovcnt,
                uint64_t offset, void *ctx, uint32_t flags)
 {
     uint64_t    read_offset = offset;
@@ -408,13 +408,13 @@ qemu_iio_readv(void *qnio_ctx, uint32_t rfd, struct iovec *iov, int iovcnt,
     int         aligned, segcount;
     int         i, ret = 0;
 
-    aligned = qemu_is_iovector_read_aligned(iov, iovcnt, QEMU_SECTOR_SIZE);
-    size = qemu_calculate_iovec_size(iov, iovcnt);
+    aligned = qnio_is_iovector_read_aligned(iov, iovcnt, QEMU_SECTOR_SIZE);
+    size = qnio_calculate_iovec_size(iov, iovcnt);
 
     if (aligned == QEMU_VECTOR_NOT_ALIGNED)
     {
         qnioDbg("Unaligned read, ctx %p \n", ctx);
-    	buffer = qemu_convert_iovector_to_buffer(iov, iovcnt, QEMU_DONOT_COPY,
+    	buffer = qnio_convert_iovector_to_buffer(iov, iovcnt, QEMU_DONOT_COPY,
                                                  QEMU_SECTOR_SIZE);
     	if (buffer == NULL)
     	{
@@ -474,14 +474,14 @@ qemu_iio_readv(void *qnio_ctx, uint32_t rfd, struct iovec *iov, int iovcnt,
 }
 
 int32_t
-qemu_iio_read(void *qnio_ctx, uint32_t rfd, unsigned char *buf, uint64_t size,
+qnio_iio_read(void *qnio_ctx, uint32_t rfd, unsigned char *buf, uint64_t size,
               uint64_t offset, void *ctx, uint32_t flags)
 {
     return (iio_read(qnio_ctx, rfd, buf, size, offset, ctx, flags));
 }
 
 int32_t
-qemu_extract_size_from_json(char *out, void *in)
+qnio_extract_size_from_json(char *out, void *in)
 {
     cJSON *json_obj;
 
@@ -521,7 +521,7 @@ qemu_extract_size_from_json(char *out, void *in)
 }
 
 int32_t
-qemu_extract_geometry_from_json(char *out, void *in)
+qnio_extract_geometry_from_json(char *out, void *in)
 {
     cJSON       *json_obj;
     unsigned int size;
@@ -566,7 +566,7 @@ qemu_extract_geometry_from_json(char *out, void *in)
 }
 
 int32_t
-qemu_extract_flush_response(char *out, void *in)
+qnio_extract_flush_response(char *out, void *in)
 {
     cJSON  *json_obj;
     int32_t ret = 0;
@@ -585,7 +585,7 @@ qemu_extract_flush_response(char *out, void *in)
 }
 
 int32_t
-qemu_iio_ioctl(void *apictx, uint32_t rfd, uint32_t opcode, void *in,
+qnio_iio_ioctl(void *apictx, uint32_t rfd, uint32_t opcode, void *in,
                void *ctx, uint32_t flags)
 {
     int   ret = 0;
@@ -605,7 +605,7 @@ qemu_iio_ioctl(void *apictx, uint32_t rfd, uint32_t opcode, void *in,
             }
             else
             {
-                ret = qemu_extract_size_from_json(out, in);
+                ret = qnio_extract_size_from_json(out, in);
             }
             break;
         case VDISK_GET_GEOMETRY:
@@ -620,7 +620,7 @@ qemu_iio_ioctl(void *apictx, uint32_t rfd, uint32_t opcode, void *in,
             }
             else
             {
-                ret = qemu_extract_geometry_from_json(out, in);
+                ret = qnio_extract_geometry_from_json(out, in);
             }
             break;
         case VDISK_AIO_FLUSH:
@@ -640,12 +640,12 @@ qemu_iio_ioctl(void *apictx, uint32_t rfd, uint32_t opcode, void *in,
                          NULL, &out, ctx, flags);
             if (flags & IIO_FLAG_ASYNC)
             {
-               qnioDbg("qemu_iio_ioctl: submitted VDISK_CHECK_IO_FAILOVER_READY "
+               qnioDbg("qnio_iio_ioctl: submitted VDISK_CHECK_IO_FAILOVER_READY "
                          "for asynchronous processing (%d)\n", ret);
             }
             else
             {
-                qnioDbg("qemu_iio_ioctl: VDISK_CHECK_IO_FAILOVER_READY "
+                qnioDbg("qnio_iio_ioctl: VDISK_CHECK_IO_FAILOVER_READY "
                           "synchronously returning %d\n", ret);
             }
             break;
@@ -658,7 +658,7 @@ qemu_iio_ioctl(void *apictx, uint32_t rfd, uint32_t opcode, void *in,
     if (out)
     {
     	/*
-    	 * qemu_iio_ioctl() allocates the out for us. Done using it. Free it
+    	 * qnio_iio_ioctl() allocates the out for us. Done using it. Free it
     	 */
 	free(out);
     }
@@ -666,13 +666,13 @@ qemu_iio_ioctl(void *apictx, uint32_t rfd, uint32_t opcode, void *in,
 }
 
 int32_t
-qemu_iio_close(void *qnio_ctx, uint32_t cfd)
+qnio_iio_close(void *qnio_ctx, uint32_t cfd)
 {
     return (iio_close(qnio_ctx, cfd));
 }
 
 void *
-qemu_ck_initialize_lock(void)
+qnio_ck_initialize_lock(void)
 {
     ck_spinlock_fas_t *lock;
 
@@ -682,7 +682,7 @@ qemu_ck_initialize_lock(void)
 }
 
 void
-qemu_ck_spin_lock(void *ptr)
+qnio_ck_spin_lock(void *ptr)
 {
     ck_spinlock_fas_t *lock = (ck_spinlock_fas_t *)ptr;
 
@@ -690,7 +690,7 @@ qemu_ck_spin_lock(void *ptr)
 }
 
 void
-qemu_ck_spin_unlock(void *ptr)
+qnio_ck_spin_unlock(void *ptr)
 {
     ck_spinlock_fas_t *lock = (ck_spinlock_fas_t *)ptr;
 
@@ -698,7 +698,7 @@ qemu_ck_spin_unlock(void *ptr)
 }
 
 void
-qemu_ck_destroy_lock(void *ptr)
+qnio_ck_destroy_lock(void *ptr)
 {
     ck_spinlock_fas_t *lock = (ck_spinlock_fas_t *)ptr;
 
