@@ -51,7 +51,6 @@ client_callback(struct qnio_msg *msg)
         reason = IIO_REASON_HUP; 
         reply->iio_error = QNIOERROR_CHANNEL_HUP;
         reply->type = IIOM_DTYPE_NONE;
-        //apictx->io_cb(0, IIO_REASON_HUP, NULL, reply);
         apictx->io_cb(0, IIO_REASON_HUP, NULL, reply->iio_error,
                       reply->iio_opcode);
         free(msg);
@@ -106,7 +105,6 @@ client_callback(struct qnio_msg *msg)
     }
     reply->iio_opcode = msg->hinfo.opcode;
 
-    //apictx->io_cb(msg->rfd, reason, msg->user_ctx, reply);
     apictx->io_cb(msg->rfd, reason, msg->user_ctx, reply->iio_error,
                       reply->iio_opcode);
 
