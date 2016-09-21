@@ -10,6 +10,27 @@
 
 #include "io_qnio.h"
 #include "defs.h"
+#include "cJSON.h"
+#include <inttypes.h>
+
+/*
+ * Size of logfile, 64MB
+ */
+#define QNIO_LOGFILE_SZ              67108864
+
+/*
+ * Bump up the version everytime this file is modified
+ */
+int qnio_version = 31;
+
+#define QNIO_QEMU_VDISK_SIZE_STR              "vdisk_size_bytes"
+#define QNIO_QEMU_VDISK_GEOM_HEADS_U32        "vdisk_geom_heads"
+#define QNIO_QEMU_VDISK_GEOM_SECTORS_U32      "vdisk_geom_sectors"
+#define QNIO_QEMU_VDISK_GEOM_CYLINDERS_U32    "vdisk_geom_cylinders"
+#define QNIO_QEMU_VDISK_IP_ADDR_STR           "vdisk_ip"
+#define QNIO_QEMU_VDISK_SRC_IP_STR            "vdisk_src_ip"
+
+#define IP_ADDR_LEN                         20
 
 void
 client_callback(struct qnio_msg *msg)
@@ -30,7 +51,9 @@ client_callback(struct qnio_msg *msg)
         reason = IIO_REASON_HUP; 
         reply->iio_error = QNIOERROR_CHANNEL_HUP;
         reply->type = IIOM_DTYPE_NONE;
-        apictx->io_cb(0, IIO_REASON_HUP, NULL, reply);
+        //apictx->io_cb(0, IIO_REASON_HUP, NULL, reply);
+        apictx->io_cb(0, IIO_REASON_HUP, NULL, reply->iio_error,
+                      reply->iio_opcode);
         free(msg);
         return;
     }
@@ -83,7 +106,9 @@ client_callback(struct qnio_msg *msg)
     }
     reply->iio_opcode = msg->hinfo.opcode;
 
-    apictx->io_cb(msg->rfd, reason, msg->user_ctx, reply);
+    //apictx->io_cb(msg->rfd, reason, msg->user_ctx, reply);
+    apictx->io_cb(msg->rfd, reason, msg->user_ctx, reply->iio_error,
+                      reply->iio_opcode);
 
     if(msg->send)
         io_vector_delete(msg->send);
@@ -97,7 +122,7 @@ client_callback(struct qnio_msg *msg)
     return;
 }
 
-struct ioapi_ctx *
+void *
 iio_init(iio_cb_t cb)
 {
     struct ioapi_ctx *apictx = NULL;
@@ -128,8 +153,9 @@ iio_init(iio_cb_t cb)
 }
 
 int32_t 
-iio_open(struct ioapi_ctx *apictx, const char *uri, uint32_t flags)
+iio_open(void *ctx, const char *uri, uint32_t flags)
 {
+    struct ioapi_ctx *apictx = ctx;
     char host[NAME_SZ] = {0};
     char port[NAME_SZ] = {0};
     int32_t cfd = -1;
@@ -164,8 +190,9 @@ iio_open(struct ioapi_ctx *apictx, const char *uri, uint32_t flags)
 }
 
 int32_t 
-iio_devopen(struct ioapi_ctx *apictx, int32_t cfd, const char *devpath, uint32_t flags)
+iio_devopen(void *ctx, int32_t cfd, const char *devpath, uint32_t flags)
 {
+    struct ioapi_ctx *apictx = ctx;
     char *channel;
     char chandev[NAME_SZ] = {0};
     int devfd;
@@ -193,8 +220,9 @@ iio_devopen(struct ioapi_ctx *apictx, int32_t cfd, const char *devpath, uint32_t
 }
 
 int32_t
-iio_devclose(struct ioapi_ctx *apictx, int32_t cfd, int32_t rfd)
+iio_devclose(void *ctx, int32_t cfd, int32_t rfd)
 {
+    struct ioapi_ctx *apictx = ctx;
     char *chandev = NULL;
 
     chandev = (char *) safe_map_find(&apictx->devices, rfd);
@@ -209,8 +237,9 @@ iio_devclose(struct ioapi_ctx *apictx, int32_t cfd, int32_t rfd)
 }
 
 int32_t
-iio_close(struct ioapi_ctx *apictx, uint32_t cfd)
+iio_close(void *ctx, uint32_t cfd)
 {
+    struct ioapi_ctx *apictx = ctx;
     char *host = NULL;
 
     host = (char *) safe_map_find(&apictx->channels, cfd);
@@ -225,8 +254,9 @@ iio_close(struct ioapi_ctx *apictx, uint32_t cfd)
 }
 
 int32_t
-iio_read(struct ioapi_ctx *apictx, int32_t rfd, unsigned char *buf, uint64_t size, uint64_t offset, void *ctx, uint32_t flags)
-{    
+iio_read(void *ctx, int32_t rfd, unsigned char *buf, uint64_t size, uint64_t offset, void *ctx_out, uint32_t flags)
+{
+    struct ioapi_ctx *apictx = ctx;
     char *chandev = NULL;
     struct qnio_msg *msg = NULL;
     char channel[NAME_SZ] = {0};
@@ -261,7 +291,7 @@ iio_read(struct ioapi_ctx *apictx, int32_t rfd, unsigned char *buf, uint64_t siz
     msg->hinfo.payload_size = 0;
     strncpy(msg->hinfo.target,device,strlen(device));
     msg->channel = channel;
-    msg->user_ctx = ctx;
+    msg->user_ctx = ctx_out;
  
     if(flags & IIO_FLAG_ASYNC)
     {
@@ -284,8 +314,9 @@ iio_read(struct ioapi_ctx *apictx, int32_t rfd, unsigned char *buf, uint64_t siz
 }
 
 int32_t
-iio_writev(struct ioapi_ctx *apictx, int32_t rfd, struct iovec *iov, int iovcnt, uint64_t offset, void *ctx, uint32_t flags)
+iio_writev(void *ctx, int32_t rfd, struct iovec *iov, int iovcnt, uint64_t offset, void *ctx_out, uint32_t flags)
 {
+    struct ioapi_ctx *apictx = ctx;
     char *chandev = NULL;
     struct qnio_msg *msg = NULL;
     char channel[NAME_SZ] = {0};
@@ -332,7 +363,7 @@ iio_writev(struct ioapi_ctx *apictx, int32_t rfd, struct iovec *iov, int iovcnt,
     msg->hinfo.io_flags |= IOR_SOURCE_TAG_APPIO;
     strncpy(msg->hinfo.target,device,strlen(device));
     msg->channel = channel;
-    msg->user_ctx = ctx;
+    msg->user_ctx = ctx_out;
  
     if(flags & IIO_FLAG_ASYNC)
     {
@@ -356,9 +387,101 @@ iio_writev(struct ioapi_ctx *apictx, int32_t rfd, struct iovec *iov, int iovcnt,
     }
 }
 
-int32_t 
-iio_ioctl_json(struct ioapi_ctx *apictx, int32_t rfd, uint32_t opcode, char *injson, char **outjson, void *ctx, uint32_t flags)
+int32_t
+qnio_extract_size_from_json(char *out, void *in)
 {
+    cJSON *json_obj;
+
+    json_obj = cJSON_Parse(out);
+    int32_t ret = 0;
+    unsigned long size = 0;
+    if (json_obj != NULL)
+    {
+        if (json_obj->type == cJSON_Object && json_obj->child != NULL)
+        {
+            if (json_obj->type != cJSON_Object)
+            {
+                qnioDbg("iio_ioctl_json invalid return type for VDISK_STAT "
+                          "IOCTL. json_obj->type = %d\n", json_obj->type);
+                ret = -EIO;
+            }
+            else
+            {
+                if (strncmp(json_obj->child->string, QNIO_QEMU_VDISK_SIZE_STR,
+                            sizeof (QNIO_QEMU_VDISK_SIZE_STR)) == 0)
+                {
+                    size = (unsigned long)(json_obj->child->valueuint64);
+                    *(unsigned long *)in = size;
+                }
+                else
+                {
+                    qnioDbg("iio_ioctl_json invalid response string for"
+                              " VDISK_STAT IOCTL.i json_obj->type->string"
+                              " = %s\n", json_obj->child->string);
+                    ret = -EIO;
+                }
+            }
+        }
+    }
+    cJSON_Delete(json_obj);
+    return (ret);
+}
+
+int32_t
+iio_ioctl(void *ctx, int32_t rfd, uint32_t opcode,
+                       int64_t *vdisk_size, void *ctx_out, uint32_t flags)
+{
+    struct ioapi_ctx *apictx = ctx;
+    int ret = 0;
+    char *out = NULL;
+
+    *vdisk_size = 0;
+
+    switch (opcode)
+    {
+        case IOR_VDISK_STAT:
+	    ret = iio_ioctl_json(apictx, rfd, IOR_VDISK_STAT, NULL, &out, NULL, flags);
+	    if (ret == QNIOERROR_SUCCESS)
+	    {
+		ret = qnio_extract_size_from_json(out, vdisk_size);
+                qnioDbg("iio_ioctl returning disk size = %" PRId64 "\n", *vdisk_size);
+	    }
+            break;
+
+        case IOR_VDISK_FLUSH:
+            ret = iio_ioctl_json(apictx, rfd, IOR_VDISK_FLUSH, NULL, &out, NULL, flags);
+            break;
+
+        case IOR_VDISK_CHECK_IO_FAILOVER_READY:
+            ret = iio_ioctl_json(apictx, rfd, IOR_VDISK_CHECK_IO_FAILOVER_READY,
+                                 NULL, &out, ctx_out, flags);
+            break;
+    }
+
+    if (ret != QNIOERROR_SUCCESS)
+    {
+	qnioDbg("Error while executing the IOCTL. Opcode = %u\n",
+		  opcode);
+        *vdisk_size = 0;
+	ret = -EIO;
+    }
+
+    if (out)
+    {
+    	/*
+    	 * iio_ioctl_json() allocates the out for us. Done using it. Free it
+    	 */
+	free(out);
+    }
+
+    qnioDbg("iio_ioctl opcode %u ret %d\n", opcode, ret);
+    return ret;
+}
+
+int32_t 
+iio_ioctl_json(void *ctx, int32_t rfd, uint32_t opcode, char *injson, char **outjson, void *ctx_out, uint32_t flags)
+{
+    struct ioapi_ctx *apictx = ctx;
     char *chandev = NULL;
     struct qnio_msg *msg = NULL;
     char channel[NAME_SZ] = {0};
@@ -407,7 +530,7 @@ iio_ioctl_json(struct ioapi_ctx *apictx, int32_t rfd, uint32_t opcode, char *inj
     msg->hinfo.payload_size = data.iov_len;
     strncpy(msg->hinfo.target,device,strlen(device));
     msg->channel = channel;
-    msg->user_ctx = ctx;
+    msg->user_ctx = ctx_out;
  
     if(flags & IIO_FLAG_ASYNC)
     {
