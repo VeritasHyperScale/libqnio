@@ -11,45 +11,176 @@
 #ifndef QNIO_API_H
 #define QNIO_API_H
 
-#include <inttypes.h>
+/*
+ * These are the opcodes referenced by qemu callback.
+ * At present vxhs_iio_callback().
+ */
+#define IRP_READ_REQUEST                    0x1FFF
+#define IRP_WRITE_REQUEST                   0x2FFF
+#define IRP_VDISK_CHECK_IO_FAILOVER_READY   2020
 
-typedef enum {
-    VDISK_AIO_READ,
-    VDISK_AIO_WRITE,
-    VDISK_STAT,
-    VDISK_TRUNC,
-    VDISK_AIO_FLUSH,
-    VDISK_AIO_RECLAIM,
-    VDISK_GET_GEOMETRY,
-    VDISK_CHECK_IO_FAILOVER_READY,
-    VDISK_AIO_LAST_CMD
-} VDISKAIOCmd;
+#define IOR_VDISK_STAT                      1005
+#define IOR_VDISK_GET_GEOMETRY              2017
+#define IOR_VDISK_FLUSH                     2019
+#define IOR_VDISK_CHECK_IO_FAILOVER_READY   IRP_VDISK_CHECK_IO_FAILOVER_READY
+
+#define VXHS_VECTOR_ALIGNED                 0
+#define VXHS_VECTOR_NOT_ALIGNED             -1
+
+#define QNIOERROR_RETRY_ON_SOURCE           44
+#define QNIOERROR_HUP                       901
+#define QNIOERROR_NOCONN                    902
+#define QNIOERROR_CHANNEL_HUP               903
+
+/* Buffer can be reused, data has been put on the wire */
+#define IIO_REASON_SENT                     0x00000001
+
+/* Data was successfully received on the target machine */
+#define IIO_REASON_RMTRX                    0x00000002
+
+/* Data was processed on the target, the value is returned */
+#define IIO_REASON_DONE                     0x00000004
+
+/* Generic events such as disconnected etc if applicable */
+#define IIO_REASON_EVENT                    0x00000008
+
+/* Hangup event */
+#define IIO_REASON_HUP                      0x00000010
+
+#define IIO_IO_BUF_SIZE                     4194304 /* 4.0MB */
 
 /*
- * API for consumers of libqnioshim.so
+ * INPUT:
+ *     rfd - The descriptor on which this operation (for which the callback is called) was performed
+ *     reason - one of the reasons for the callback, please see the reasons above
+ *     ctx - opaque context
+ *     reply - the message pointer
+ * RETURNS:
+ *     void
+ * DESCRIPTION:
+ *     This callback is called, whenever there is something important to inform the upper layers about
+ *     It can be called multiple times for the same IO request. If a request to write was done async, you can
+ *     choose to get a callback when the data was written on the wire and/or when the message was processed.
+ *     there are three levels of ACK that can be done and all three can be requested.
+ *     One has to look at the "type" and then access the data.
+ *     The callback can also be called when there is a remote hangup. In which case, there will be no data
+ *     It is perfectly possible to write/read partial data. The number of bytes written is part of the iio_buf.
+ *     Partial read/write can be avoided (unless error) if IIO_FLAG_NOPARTIAL is specified for the request
+ * MEMORY_MANAGEMENT:
+ *     The callee is responsible for all internal buffers
+ *     If the callback is as a result of a read request, the data buffer is exactly the same buffer used
+ *     during the call to iio_read(), the same is the case with iio_write
+ *     Propertysets are returned as a result of a callback due to a completion of an iio_ioctl()
+ *     this again is the propertyset passed in as part of the argument (out argument).
+ * CONTEXT:
+ *     The callback is called in the interrupt context which implies, the callback should be returned right away
+ *     no memory allocation can be done either from system or from pool. The callback should be wait-free.
  */
-void *qnio_iio_init(void *cb);
-int32_t qnio_open_iio_conn(void *qnio_ctx, const char *uri, uint32_t flags);
-int32_t qnio_iio_devopen(void *qnio_ctx, int32_t cfd, const char *devpath,
-                         uint32_t flags);
-int32_t qnio_iio_devclose(void *qnio_ctx, int32_t cfd, uint32_t rfd);
-int32_t qnio_iio_writev(void *qnio_ctx, uint32_t rfd, struct iovec *iov,
-                        int iovcnt, uint64_t offset, void *ctx, uint32_t flags);
-int32_t qnio_iio_readv(void *qnio_ctx, uint32_t rfd, struct iovec *iov,
-                       int iovcnt, uint64_t offset, void *ctx, uint32_t flags);
-int32_t qnio_iio_ioctl(void *apictx, uint32_t rfd, uint32_t opcode, void *in,
-                       void *ctx, uint32_t flags);
-int32_t qnio_iio_close(void *qnio_ctx, uint32_t cfd);
-int32_t qnio_iio_read(void *qnio_ctx, uint32_t rfd, unsigned char *buf,
-                      uint64_t size, uint64_t offset, void *ctx,
-                      uint32_t flags);
-uint32_t qnio_iio_extract_msg_error(void * ptr);
-uint32_t qnio_iio_extract_msg_opcode(void * ptr);
-size_t qnio_iio_extract_msg_size(void * ptr);
-void *qnio_ck_initialize_lock(void);
-void qnio_ck_spin_lock(void *ptr);
-void qnio_ck_spin_unlock(void *ptr);
-void qnio_ck_destroy_lock(void *ptr);
-void qnio_iio_release_msg(void *ptr);
+typedef void (*iio_cb_t) (int32_t rfd, uint32_t reason, void *ctx, uint32_t error, uint32_t opcode);
+ 
+void *iio_init(iio_cb_t cb);
+
+/*
+ * INPUT:
+ *    uri - const string of the format of://<hostname|ip>:port
+ *    flags - currently unused, this must be set to 0
+ * DESCRIPTION:
+ *    This call returns the channel descriptor > 0 and -1 on error with errno set
+ */
+int32_t iio_open(void *apictx, const char *uri, uint32_t flags);
+
+/*
+ * INPUT:
+ *    cfd - got from a previous open call to iio_open();
+ *    devpath - remote device path eg. /dev/of/vdisk/vdisk1
+ *    flags - must be set to 0
+ * RETURNS:
+ *     rfd - a descriptor for the device
+ *    -1 on error, errno is set to what the error indicates
+ *    errno can be one of:
+ *        ENODEV - remote device not found
+ *        EBADF  - the channel id is bad
+ *        EBUSY  - The call cannot be completed right now
+ *        EPIPE  - the channel got disconnected, call back would be called in addition to this.
+ * DESCRIPTION:
+ *     The call "indicates" an intent to use the device. No guarantees on the implementations can be assumed.
+ *     The caller should call iio_devclose with the descriptor returned once the intent is done.
+ *     The fd returned is invalid after iio_devclose
+ *    
+ */
+int32_t iio_devopen(void *apictx, int32_t cfd, const char *devpath,
+                    uint32_t flags);
+
+/*
+ * INPUT:
+ *    cfd - got from a previous open call to iio_open();
+ *    rfd - a descriptor previously opened by iio_devopen()
+ * OUTPUT: None
+ * DESCRIPTION:
+ *    the call invalidates an rfd previously opened using iio_devopen()
+ *    Calling iio_devclose() multiple times results in an undefined behavior.
+ *    For every matching iio_devopen() there should be a matching iio_devclose()
+ *    The call frees all data structures associated with the remote device
+ */
+int32_t iio_devclose(void *apictx, int32_t cfd, int32_t rfd);
+ 
+/*
+ * INPUT:
+ *    cfd - got from a previous open call to iio_open();
+ *    rfd - the remove device descriptor on which write needs to be performed
+ *    ctx - an opaque context that is not interpreted This is set for async calls only
+ *          It can be NULL.
+ *    offset - an offset to perform the write
+ *    count  - the number of iovecs
+ *    iov - an array of iovecs (This is a scatter gather operation)
+ *    flags - can be one of
+ *        IIO_FLAG_ASYNC - indicating this is a aio call.
+ *        IIO_FLAG_SENT  - callback when all data hits the wire and buffers are free to be be reused
+ *        IIO_FLAG_RMTRX - callback when the remote host process receives the data
+ *        IIO_FLAG_DONE  - callback when the remote host process is done with the data and sent to stable storage
+ * RETURNS:
+ *        -1 on error, sets errno
+ *        EBADF  - the remote fd is bad
+ *        EBUSY  - The call cannot be completed right now
+ *        EPIPE  - the channel got disconnected, call back would be called in addition to this.
+ */
+int32_t iio_writev(void *apictx, int32_t rfd, struct iovec *iov,
+                   int iovcnt, uint64_t offset, void *ctx, uint32_t flags);
+
+int32_t iio_ioctl(void *apictx, int32_t rfd, uint32_t opcode,
+                  int64_t *vdisk_size, void *ctx, uint32_t flags);
+
+/*
+ * INPUT:
+ *    cfd - got from a previous open call to iio_open();
+ *    rfd - the remove device descriptor on which write needs to be performed
+ *    ctx - an opaque context that is not interpreted. This is set for async calls only
+ *          It can be NULL.
+ *    offset - an offset to read from
+ *    size  - the size of the read request
+ *    buf - the output buffer of size "size"
+ *    flags - can be one of
+ *        IIO_FLAG_ASYNC - indicating this is a aio call.
+ *        IIO_FLAG_SENT  - callback when the request hits the wire and inps is freed to be be reused
+ *        IIO_FLAG_RMTRX - callback when the remote host process receives the request
+ *        IIO_FLAG_DONE  - callback when the remote host process is done with the request and response
+ *                         will be set in the callback as IIO_REASON_DONE with the data type as IIOM_DTYPE_BYTES 
+ * If the call is sync, then the call blocks until a response is received and the buffer is read.
+ * No callbacks are called.
+ * It should be noted, that the buf needs to be stable until the callback with request IIO_REASON_DONE is completed
+ * in the case of async io
+ * RETURNS:
+ *        -1 on error, sets errno
+ *        EBADF  - the remote fd is bad
+ *        EBUSY  - The call cannot be completed right now
+ *        EPIPE  - the channel got disconnected, call back would be called in addition to this.
+ */
+int32_t iio_read(void *apictx, int32_t rfd, unsigned char *buf,
+                 uint64_t size, uint64_t offset, void *ctx, uint32_t flags); 
+
+/*
+ * Delete a previously created channel
+ */
+int32_t iio_close(void *apictx, uint32_t cfd);
 
 #endif

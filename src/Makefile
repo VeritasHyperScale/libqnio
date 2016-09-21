@@ -20,19 +20,13 @@ BASE_OBJS = $(shell echo lib/qnio/*.o lib/qnio/*.d)
 BASE_OBJECTS = $(BASE_SOURCES:.c=.o)
 -include $(BASE_SOURCES:.c=.d)
 
-SHIM_TARGET = libqnioshim.so
-SHIM_SOURCES = $(shell echo lib/qnioshim/*.c) 
-SHIM_OBJS = $(shell echo lib/qnioshim/*.o lib/qnio/*.d)
-SHIM_OBJECTS = $(SHIM_SOURCES:.c=.o)
--include $(SHIM_SOURCES:.c=.d)
-
 TEST_TARGET = qnio_server 
 TEST_SOURCES = $(shell echo test/*.c)
 TEST_OBJS = $(shell echo test/*.o lib/qnio/*.d)
 TEST_OBJECTS = $(TEST_SOURCES:.c=.o)
 -include $(TEST_SOURCES:.c=.d)
 
-all: $(BASE_TARGET) $(SHIM_TARGET) $(TEST_TARGET)
+all: $(BASE_TARGET) $(TEST_TARGET)
 
 .c.o:
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) $(OPTFLAGS) -c -o $@ $<
@@ -40,17 +34,12 @@ all: $(BASE_TARGET) $(SHIM_TARGET) $(TEST_TARGET)
 $(BASE_TARGET): $(BASE_OBJECTS)
 	$(CC) $(FLAGS) $(CFLAGS) $(LDFLAGS) -o $(BASE_TARGET) $(BASE_OBJECTS)
 
-$(SHIM_TARGET): $(SHIM_OBJECTS) $(BASE_TARGET)
-	$(CC) $(FLAGS) $(CFLAGS) $(LDFLAGS) -o $(SHIM_TARGET) $(SHIM_OBJECTS) -L. -lqnio
-
 $(TEST_TARGET): $(TEST_OBJECTS) $(BASE_TARGET)
 	$(CC) $(FLAGS) $(CFLAGS) -o $(TEST_TARGET) $(TEST_OBJECTS) -L. -lqnio
 
 clean:
 	\rm -f $(BASE_TARGET)
 	\rm -f $(BASE_OBJS)
-	\rm -f $(SHIM_TARGET)
-	\rm -f $(SHIM_OBJS)
 	\rm -f $(TEST_TARGET)
 	\rm -f $(TEST_OBJS)
 
