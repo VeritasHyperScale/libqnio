@@ -24,9 +24,6 @@
 #define IOR_VDISK_FLUSH                     2019
 #define IOR_VDISK_CHECK_IO_FAILOVER_READY   IRP_VDISK_CHECK_IO_FAILOVER_READY
 
-#define VXHS_VECTOR_ALIGNED                 0
-#define VXHS_VECTOR_NOT_ALIGNED             -1
-
 #define QNIOERROR_RETRY_ON_SOURCE           44
 #define QNIOERROR_HUP                       901
 #define QNIOERROR_NOCONN                    902
