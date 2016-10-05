@@ -433,11 +433,10 @@ iio_ioctl(void *ctx, int32_t rfd, uint32_t opcode,
     int ret = 0;
     char *out = NULL;
 
-    *vdisk_size = 0;
-
     switch (opcode)
     {
         case IOR_VDISK_STAT:
+            *vdisk_size = 0;
 	    ret = iio_ioctl_json(apictx, rfd, IOR_VDISK_STAT, NULL, &out, NULL, flags);
 	    if (ret == QNIOERROR_SUCCESS)
 	    {
@@ -447,6 +446,7 @@ iio_ioctl(void *ctx, int32_t rfd, uint32_t opcode,
             break;
 
         case IOR_VDISK_FLUSH:
+            *vdisk_size = 0;
             ret = iio_ioctl_json(apictx, rfd, IOR_VDISK_FLUSH, NULL, &out, NULL, flags);
             break;
 
@@ -460,7 +460,6 @@ iio_ioctl(void *ctx, int32_t rfd, uint32_t opcode,
     {
 	qnioDbg("Error while executing the IOCTL. Opcode = %u\n",
 		  opcode);
-        *vdisk_size = 0;
 	ret = -EIO;
     }
 
