@@ -12,144 +12,169 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
+#include <libgen.h>
 #include <linux/unistd.h>
 #include <sys/uio.h>
 #include "qnio.h"
 #include "datastruct.h"
 #include <fcntl.h>
 #include <signal.h>
+#include "qnio_api.h"
 
-/* global variables */
+#define VDISK_SIZE_BYTES    "vdisk_size_bytes"
+#define FAKE_DISK_SIZE      4194304
+
 int verbose = 0;
 int mem_only = 0;
 int parallel = 0;
 char *hostname = "127.0.0.1";
+FILE *backing_file;
 
-void *
-pdispatch(void *data)
+static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
 {
-    int fd = 0;
-    struct iovec iov,returnd;
+    size_t n;
+    uint64_t offset;
+    uint64_t size;
+    char vdisk_path[NAME_SZ64];
+    char *bname;
+
+    offset = msg->hinfo.io_offset;
+    size = msg->hinfo.io_size;
+    strcpy(vdisk_path, msg->hinfo.target);
+    bname = basename(vdisk_path);
+    sprintf(vdisk_path, "/tmp/%s", bname);
+    backing_file = fopen(vdisk_path, "r");
+    if (!backing_file) {
+        printf("Error opening file %s\n", vdisk_path);
+        perror("fopen");
+        return -1;
+    }
+
+    if (offset) {
+        fseek(backing_file, offset, SEEK_SET);
+    }
+    returnd->iov_base = malloc(size);
+    n = fread(returnd->iov_base, 1, size, backing_file);
+    fclose(backing_file);
+
+    if (verbose) {
+        printf("read %ld bytes\n", n);
+    }
+
+    returnd->iov_len = n;
+    msg->hinfo.data_type = DATA_TYPE_RAW;
+    msg->recv = new_io_vector(1, NULL);
+    io_vector_pushfront(msg->recv, *returnd);
+    msg->hinfo.payload_size = returnd->iov_len;
+
+    return 0;
+}
+
+static int vdisk_write(struct qnio_msg *msg)
+{
+    size_t n;
+    uint64_t offset;
+    struct iovec iov;
+    char vdisk_path[NAME_SZ64];
+    char *bname;
+
+    offset = msg->hinfo.io_offset;
+    iov = io_vector_at(msg->send, 0);
+
+    strcpy(vdisk_path, msg->hinfo.target);
+    bname = basename(vdisk_path);
+    sprintf(vdisk_path, "/tmp/%s", bname);
+    backing_file = fopen(vdisk_path, "r+");
+    if (!backing_file) {
+        printf("Error opening file %s\n", vdisk_path);
+        perror("fopen");
+        return -1;
+    }
+
+    if (offset) {
+        fseek(backing_file, offset, SEEK_SET);
+    }
+    n = fwrite(iov.iov_base, 1, iov.iov_len, backing_file);
+    fclose(backing_file);
+
+    if (verbose) {
+        printf("wrote %ld bytes\n", n);
+    }
+
+    msg->hinfo.err = 0;
+    msg->recv = NULL;
+    msg->hinfo.payload_size = 0;
+
+    msg->hinfo.flags = QNIO_FLAG_RESP;
+    msg->hinfo.io_flags = QNIO_FLAG_RESP;
+
+    return 0;
+}
+
+
+void *pdispatch(void *data)
+{
+    struct iovec returnd;
     kvset_t *ps = NULL;
-    struct qnio_msg *msg = (struct qnio_msg *) data;
+    key_value_t *kv = NULL;
+    struct qnio_msg *msg = data;
+    uint16_t opcode = msg->hinfo.opcode;
+    uint64_t disk_size = FAKE_DISK_SIZE;
 
-    if(verbose)
-        printf("In server callback for msg #%ld\n",msg->hinfo.cookie);
-
-    if (mem_only)
-        goto respond;
-
-    fd = open(msg->hinfo.target, O_APPEND | O_NONBLOCK | O_WRONLY | O_CREAT, 0644);
-    if (msg->hinfo.data_type == DATA_TYPE_PS)
-    {
-        qnio_stream *pstream = NULL;
-
-        iov = io_vector_at(msg->send, 0);
-
-        kvset_unmarshal((qnio_byte_t *)iov.iov_base, &ps);
-
-        pstream = new_qnio_stream (0);
-
-        kvset_print (pstream, 2, ps);
-
-        if (pstream->size > 0)
-        {
-            write(fd, pstream->buffer, pstream->size);
-        }
-
-        qnio_delete_stream(pstream);
-    }
-    else
-    {
-        if (msg->send != NULL)
-        {
-            iov = io_vector_at(msg->send, 0);
-            write(fd, iov.iov_base, iov.iov_len);
-        }
-        else
-        {
-            char recv[100] = {0};
-
-            sprintf(recv, "Message recv for %ld\n", msg->hinfo.cookie);
-            write(fd, recv, strlen(recv));
-        }
+    if (verbose) {
+        printf("In server callback for msg #%ld\n", msg->hinfo.cookie);
     }
 
-    close(fd);
+    ps = new_ps(0);
+    switch (opcode) {
+    case IOR_VDISK_STAT:
+        kv = new_kv(VDISK_SIZE_BYTES, 0, TYPE_UINT64,
+                    sizeof (uint64_t), &disk_size);
+        kvset_add(ps, kv);
 
-respond:
+        returnd.iov_len = 0;
+        returnd.iov_base = kvset_marshal(ps, (int *)&(returnd.iov_len));
+        msg->hinfo.data_type = DATA_TYPE_PS;
+        msg->recv = new_io_vector(1, NULL);
+        io_vector_pushfront(msg->recv, returnd);
+        msg->hinfo.payload_size = returnd.iov_len;
+        break;
 
-    if (msg->hinfo.flags & QNIO_FLAG_REQ_NEED_ACK)
-    {
-        msg->hinfo.err = 0; /* Success */
-        msg->recv = NULL;
-        msg->hinfo.payload_size = 0;
+    case IRP_READ_REQUEST:
+        if (vdisk_read(msg, &returnd)) {
+            exit(1);
+        }
+        break;
 
+    case IRP_WRITE_REQUEST:
+        if (vdisk_write(msg)) {
+            exit(1);
+        }
+
+    default:
+        break;
+    }
+
+    if (msg->hinfo.flags & QNIO_FLAG_SYNC_REQ) {
+        msg->hinfo.flags = QNIO_FLAG_SYNC_RESP;
+        msg->hinfo.io_flags = QNIO_FLAG_SYNC_RESP;
+    }
+    else {
         msg->hinfo.flags = QNIO_FLAG_RESP;
         msg->hinfo.io_flags = QNIO_FLAG_RESP;
-        qnio_send_resp(msg);
     }
-    else if (msg->hinfo.flags & QNIO_FLAG_REQ_NEED_RESP)
-    {
-        if (msg->hinfo.data_type == DATA_TYPE_PS)
-        {
-            ps = new_ps(0);
-            key_value_t *kv = NULL;
-
-            kv = new_kv ("name", 0, TYPE_STR, strlen ("katie")+1, "katie");
-            kvset_add(ps, kv);
-
-            kv = new_kv ("surname", 0, TYPE_STR, strlen ("holmes")+1, "holmes");
-            kvset_add(ps, kv);
-
-            returnd.iov_len = 0;
-            returnd.iov_base = kvset_marshal(ps, (int *)&(returnd.iov_len));
-            msg->hinfo.data_type = DATA_TYPE_PS;
-            msg->recv = new_io_vector(1, NULL);
-            io_vector_pushfront(msg->recv, returnd);
-            msg->hinfo.payload_size = returnd.iov_len;
-        }
-        else if(msg->hinfo.data_type == DATA_TYPE_RAW)
-        {
-            returnd.iov_base = strdup("qnio_res");
-            returnd.iov_len = 8;
-            msg->hinfo.data_type = DATA_TYPE_RAW;
-            msg->recv = new_io_vector(1, NULL);
-            io_vector_pushfront(msg->recv, returnd);
-            msg->hinfo.payload_size = returnd.iov_len;
-        }
-        if(msg->hinfo.flags & QNIO_FLAG_SYNC_REQ)
-        {
-            msg->hinfo.flags = QNIO_FLAG_SYNC_RESP;
-            msg->hinfo.io_flags = QNIO_FLAG_SYNC_RESP;
-        }
-        else
-        {
-            msg->hinfo.flags = QNIO_FLAG_RESP;
-            msg->hinfo.io_flags = QNIO_FLAG_RESP;
-        }
-        qnio_send_resp(msg);
-    }
-    else
-    {
-        qnio_free_msg(msg);
-        qnio_free_io_pool_buf(msg);
-    }
-
+    qnio_send_resp(msg);
+    qnio_free_msg(msg);
     return NULL;
 }
 
-void
-server_callback (struct qnio_msg *msg)
+void server_callback(struct qnio_msg *msg)
 {
     pthread_t thr;
 
-    if(parallel)
-    {
+    if (parallel) {
         pthread_create(&thr, NULL, pdispatch, msg);
-    }
-    else
-    {
+    } else {
         pdispatch(msg);
     }
 }
@@ -161,29 +186,26 @@ int main(int argc, char **argv)
 
     signal(SIGPIPE, SIG_IGN); 
 
-    while((c = getopt(argc, argv, "h:mpv")) != -1)
-    {
-        switch(c)
-        {
-            case 'h':
-                hostname = optarg;
-                break;
-            case 'm':
-                mem_only = 1;
-                break;
-            case 'p':
-                parallel = 1;
-                break;
-            case 'v':
-                verbose = 1;
-                break;
-            default:
-                break;
+    while ((c = getopt(argc, argv, "h:mpv")) != -1) {
+        switch (c) {
+        case 'h':
+            hostname = optarg;
+            break;
+        case 'm':
+            mem_only = 1;
+            break;
+        case 'p':
+            parallel = 1;
+            break;
+        case 'v':
+            verbose = 1;
+            break;
+        default:
+            break;
         }
     }
     err = qnio_server_init(server_callback);
-    if(err != 0)
-    {
+    if (err != 0) {
         printf("server init failed\n");
         exit(0);
     }
@@ -191,14 +213,12 @@ int main(int argc, char **argv)
     printf("server initialized\n");
 
     err = qnio_server_start(hostname, QNIO_DEFAULT_PORT);
-    if(err != 0)
-    {
+    if (err != 0) {
         printf("server start failed\n");
         exit(0);
     }
     printf("server started\n");
-    while(1)
-    {
+    while (1) {
         sleep(10000);
     }
     exit(0);
