@@ -17,13 +17,6 @@
 
 #define IO_QNIO_EVENT_HANGUP  0x0001   /* The channel no longer has an endpoint */
  
-/* Operation Flags */
-#define IIO_FLAG_ASYNC        0x0001   /* Do an async send */
-#define IIO_FLAG_NOPARTIAL    0x0002   /* No partial read/write */
-#define IIO_FLAG_SENT         0x0004   /* Issue a callback when the data has been sent */
-#define IIO_FLAG_RMTRX        0x0008   /* Issue a callback when the remote computer process has the data */
-#define IIO_FLAG_DONE         0x0010   /* Issue a callback when the remote computer process "processed" the */
-                                       /* data and has a response if there is any response */
 
 #define IO_BUF_SIZE           4603904  /* 4.4MB */
 
@@ -52,12 +45,12 @@ typedef struct iio_msg_t
    {
        struct 
        {
-           unsigned char  *iio_recv_buf;  /* The data pointer, this is allocated by the caller */
+           unsigned char *iio_recv_buf;  /* The data pointer, this is allocated by the caller */
            uint64_t iio_len; /* The size of buffer as provided in the request */
            uint64_t iio_nbytes; /* The number of bytes written or read */
        } iio_buf;
        kvset_t *iio_ps;    /* out Propertyset */
-       char          *iio_json;  /* out JSON */
+       char *iio_json;  /* out JSON */
        uint32_t iio_etype; /* A number indicating the event */
    } iio_data;
 }iio_msg;
@@ -66,11 +59,9 @@ struct ioapi_ctx
 {
     safe_map_t     channels;
     safe_map_t     devices;
-    safe_map_t     dev_refcount; 
     int32_t        next_fd;
     iio_cb_t       io_cb;
     struct qnio_ctx *qnioctx;
-    int32_t        need_json;
 };
 
 /*

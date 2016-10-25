@@ -118,7 +118,6 @@ clear_msg(struct qnio_msg *msg)
     msg->rfd = 0;
     msg->user_ctx = 0;
     msg->lnode = (const struct list_head) { 0 };
-    io_iov_clear(&msg->data_iov);
     msg->send = NULL;
     msg->recv = NULL;
     msg->io_buf = NULL;
