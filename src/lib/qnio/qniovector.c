@@ -49,24 +49,6 @@ QNIO_API_(void) qnio_vector_insert(qnio_vector * va, void *data, int idx)
 }
 
 QNIO_API_(void *)
-qnio_vector_remove_at(qnio_vector * va, int idx)
-{
-    void *tmp;
-
-    tmp = va->_array[idx];
-    va->_array[idx] = NULL;
-
-    /*
-     * Can't decrement count or removing middle elements will cause tail
-     * tail elements to not be enumerated. Instead, clients have to skip
-     * NULL entries.
-     */
-    /* va->_count--; */
-
-    return (tmp);
-}
-
-QNIO_API_(void *)
 qnio_vector_remove(qnio_vector * va, int idx)
 {
     void *tmp;

@@ -62,87 +62,83 @@ struct qnio_epoll_unit
 {
     struct epoll_event *send_activefds; /* Send Epoll active fd set     */
     struct epoll_event *recv_activefds; /* Recv Epoll active fd set     */
-    int                 send_epoll_fd;  /* Send Epoll fd                */
-    int                 recv_epoll_fd;  /* Recv Epoll fd                */
-    pthread_t          send_epoll;
-    pthread_t          recv_epoll;
-    struct qnio_ctx     *ctx;
+    int send_epoll_fd;  /* Send Epoll fd                */
+    int recv_epoll_fd;  /* Recv Epoll fd                */
+    pthread_t send_epoll;
+    pthread_t recv_epoll;
+    struct qnio_ctx *ctx;
 };
 
 struct qnio_client_epoll_unit
 {
     struct epoll_event *activefds;      
-    int                 epoll_fd;       
-    pthread_t          client_epoll;
-    struct qnio_ctx     *ctx;
+    struct qnio_ctx *ctx;
+    pthread_t client_epoll;
+    int epoll_fd;       
 };
 
 struct qnio_ctx
 {
-    char         *node;
-    char         *port;
-    clock_t       start_time;           /* Start time                   */
-    int           nactive;              /* # of connections now         */
-    unsigned long nrequests;            /* Requests made                */
-    uint64_t      in, out;              /* IN/OUT traffic counters      */
-
-    int                 io_buf_size;    /* IO Buffer size               */
-    struct epoll_event *activefds;      /* Epoll active fd set          */
-    int                 listen_fd;      /* Source fd                    */
-    int                 epoll_fd;       /* Epoll fd                     */
-    uint64_t            nmsgid;
-    qnio_map             *channels;
-    qnio_notify          notify;
-    qnio_notify          gc;
-    qnio_notify          msg_io_done;
-    void               *payload_pool;
-    slab_t             msg_pool;
+    char *node;
+    char *port;
+    struct epoll_event *activefds; /* Epoll active fd set */
+    clock_t start_time; /* Start time */
+    unsigned long nrequests; /* Requests made */
+    uint64_t in, out; /* IN/OUT traffic counters */
+    int nactive; /* # of connections now */
+    int io_buf_size; /* IO Buffer size */
+    int listen_fd; /* Source fd */
+    int epoll_fd; /* Epoll fd */
+    uint64_t nmsgid;
+    qnio_map *channels;
+    qnio_notify notify;
+    qnio_notify gc;
+    qnio_notify msg_io_done;
+    void *payload_pool;
+    slab_t msg_pool;
     struct qnio_epoll_unit eu[MAX_EPOLL_UNITS];
     struct qnio_client_epoll_unit ceu[MAX_EPOLL_UNITS+1];
-    void               *apictx;
+    void *apictx;
 };
 
 struct qnio_header
 {
-    uint64_t         payload_size;
-    int              data_type;
-    qnio_error_t       err;
-    uint64_t         cookie;
-    unsigned char    crc;
-    uint16_t         opcode;
-    uint64_t         io_offset;
-    uint64_t         io_size;
-    uint64_t         io_nbytes;
-    uint64_t         io_seqno;
-    uint64_t         io_flags;
-    uint64_t         flags;
-    uint64_t         io_remote_hdl;
-    uint32_t         io_remote_flags;
-    char             target[NAME_SZ64];
+    uint64_t payload_size;
+    int data_type;
+    qnio_error_t err;
+    uint64_t cookie;
+    unsigned char crc;
+    uint16_t opcode;
+    uint64_t io_offset;
+    uint64_t io_size;
+    uint64_t io_nbytes;
+    uint64_t io_seqno;
+    uint64_t io_flags;
+    uint64_t flags;
+    uint64_t io_remote_hdl;
+    uint32_t io_remote_flags;
+    char target[NAME_SZ64];
 };
-
 
 struct qnio_msg
 {
-    struct qnio_header hinfo;
-    /* New members to this structure go after this */
-    int           buf_source;
-    int           resp_ready;
-    char         *channel;
-    void         *ctx;      /* pointer to struct conn */
-    qnio_byte_t     header[HEADER_LEN];
-    void         *msg_pool; /* pointer to msg pool */
-    void         *io_pool;  /* pointer to io pool */
-    int           rfd;      /* remote file descriptor for this message */
-    void         *user_ctx; /* pointer to client context */
-    list_t        lnode;    /* list node */
-    struct io_iov data_iov;
-    io_vector    *send;
-    io_vector    *recv;
-    qnio_byte_t    *io_buf;
-    qnio_notify    msg_io_done;
-    void         *io_blob;
-    void         *reserved;
+    struct qnio_header hinfo; /* header should be the first field */
+    int buf_source;
+    int resp_ready;
+    char *channel;
+    void *ctx; /* pointer to struct conn */
+    qnio_byte_t header[HEADER_LEN];
+    void *msg_pool; /* pointer to msg pool */
+    void *io_pool; /* pointer to io pool */
+    qnio_byte_t *io_buf;
+    int rfd; /* remote file descriptor for this message */
+    void *user_ctx; /* pointer to client context */
+    list_t lnode; /* list of messages with pending ACK */
+    io_vector *send;
+    io_vector *recv;
+    qnio_notify msg_io_done;
+    void *io_blob;
+    void *reserved;
 };
 
 

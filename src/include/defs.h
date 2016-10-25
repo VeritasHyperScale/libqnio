@@ -73,8 +73,10 @@
 #define MSG_TYPE_REQUEST            1
 #define MSG_TYPE_RESPONSE           2
 
+#define BUF_SRC_NONE                0
 #define BUF_SRC_POOL                1
 #define BUF_SRC_USER                2
+#define BUF_SRC_MALLOC              3
 
 #define CRC_MODULO                  256
 
@@ -116,65 +118,78 @@ struct io_class
 /*
  * Endpoint status
  */
-#define FLAG_HEADERS_PARSED    1
-#define FLAG_R                 2                /* Can read in general  */
-#define FLAG_W                 4                /* Can write in general */
-#define FLAG_CLOSED            8
-#define FLAG_DONT_CLOSE        16
-#define FLAG_ALWAYS_READY      32               /* Some stream types like
+#define FLAG_R                 0x0001       /* Can read in general  */
+#define FLAG_W                 0x0002       /* Can write in general */
+#define FLAG_CLOSED            0x0004             
+#define FLAG_DONT_CLOSE        0x0008
+#define FLAG_ALWAYS_READY      0x0010       /* Some stream types like
                                                  * user_func */
-#define FLAG_DATA_READY        64
-
 #define QNIO_SYSCALL(expression)                   \
     ({ long int __result;                         \
        do { __result = (long int)(expression); }  \
        while (__result == -1L && (errno == EAGAIN || errno == EINTR)); \
        __result; })
 
+enum NSReadState { /* Network stream read state */
+    NSRS_READ_START,
+    NSRS_READ_HEADER,
+    NSRS_PROCESS_HEADER,
+    NSRS_READ_DATA,
+    NSRS_PROCESS_DATA
+};
+
+enum NSWriteState { /* Network stream write state */
+    NSWS_WRITE_START,
+    NSWS_WRITE_DATA
+};
+
+struct NSReadInfo { /* Network stream read info */
+    enum NSReadState state;
+    qnio_byte_t headerb[HEADER_LEN];
+    struct qnio_header hinfo;
+    struct io_iov iovec;
+    qnio_byte_t *buf;
+    int buf_source;
+};
+
+struct NSWriteInfo { /* Network stream write info */
+    enum NSWriteState state;
+    struct io_iov iovec;
+};
+
 /*
  * Data exchange endpoint. Represents one end of a connection
  */
 struct endpoint
 {
-    int                    sock;                /* Descriptor           */
-    int                    nread_last;          /* Bytes last read      */
-    unsigned int           flags;
-    const struct io_class *io_class;            /* IO class             */
-    struct io              io;                  /* IO buffer            */
-    struct io              hbuf;                /* Header buffer        */
-    struct io              ubuf;                /* User buffer          */
-    struct io              *io_ptr;             /* Pointer to usable io buf */
-    qnio_byte_t              headerb[HEADER_LEN];
-    struct qnio_header      hinfo;
-    struct conn           *conn;
-    safe_fifo_t            fifo_q;
+    int sock; /* File Descriptor */
+    unsigned int flags;
+    struct conn *conn;
+    const struct io_class *io_class; /* IO class */
 };
 
 struct conn
 {
     struct qnio_ctx *ctx;
-
     struct channel *channel;
-
-    struct usa sa;                      /* Remote socket address        */
-    time_t     birth_time;              /* Creation time                */
-    time_t     expire_time;             /* Expiration time              */
-
-    int loc_port;                       /* Local port                   */
-    int status;                         /* Reply status code            */
-
-    struct endpoint loc;                /* Local stream                 */
-    struct endpoint rem;                /* Remote stream                */
-    struct endpoint ev;                 /* Event Stream, for wake-up calls */
-
-    int stream_id;                      /* Stream ID (generated) in case of long
-                                         * msg */
+    struct usa sa; /* Remote socket address */
+    time_t birth_time; /* Creation time */
     int flags;
     int conn_status;
+    int euid;
+    int stream_id; /* Stream ID (generated) in case of long msg */
+    int loc_port; /* Local port */
+    int status; /* Reply status code */
+    time_t expire_time; /* Expiration time */
+    struct endpoint loc; /* Local stream */
+    struct endpoint rem; /* Remote stream */
+    struct endpoint ev; /* Event Stream, for wake-up calls */
+    struct NSReadInfo rinfo; /* State of network read */
+    struct NSWriteInfo winfo; /* State of network write */
+    safe_fifo_t fifo_q; /* List of pending messages */
+    list_t msgs; /* List of messages with pending ack or response */
     slab_t msg_pool;
     slab_t io_buf_pool;
-    int euid;
-    list_t         msgs;
     pthread_mutex_t msg_lock;
 };
 
@@ -214,6 +229,8 @@ int close_connection(struct conn *c);
 void flush_message_queue(struct conn *c);
 void flush_pending_messages(struct conn *c);
 void mark_pending_noconn(struct conn *c);
+void reset_read_state(struct NSReadInfo *rinfo);
+void reset_write_state(struct NSWriteInfo *winfo);
 
 int create_and_bind(char *node, char *port);
 void clear_msg(struct qnio_msg *msg);
