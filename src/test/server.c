@@ -10,6 +10,8 @@
 
 #include <pthread.h>
 #include <stdio.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <string.h>
 #include <libgen.h>
@@ -21,8 +23,8 @@
 #include <signal.h>
 #include "qnio_api.h"
 
+#define VDISK_DIR           "/tmp"
 #define VDISK_SIZE_BYTES    "vdisk_size_bytes"
-#define FAKE_DISK_SIZE      4194304
 
 int verbose = 0;
 int mem_only = 0;
@@ -119,7 +121,11 @@ void *pdispatch(void *data)
     key_value_t *kv = NULL;
     struct qnio_msg *msg = data;
     uint16_t opcode = msg->hinfo.opcode;
-    uint64_t disk_size = FAKE_DISK_SIZE;
+    uint64_t disk_size = 0;
+    char vdisk_path[NAME_SZ64];
+    char *bname;
+    struct stat stat;
+    int fd;
 
     if (verbose) {
         printf("In server callback for msg #%ld\n", msg->hinfo.cookie);
@@ -128,10 +134,25 @@ void *pdispatch(void *data)
     ps = new_ps(0);
     switch (opcode) {
     case IOR_VDISK_STAT:
+        strcpy(vdisk_path, msg->hinfo.target);
+        bname = basename(vdisk_path);
+        sprintf(vdisk_path, "%s/%s", VDISK_DIR, bname);
+        fd = open(vdisk_path, O_RDONLY);
+        if (fd >= 0) {
+            if (fstat(fd, &stat)== 0) {
+                disk_size = stat.st_size;
+            } else {
+                perror("fstat");
+                disk_size = 0;
+            }
+            close(fd);
+        } else {
+            perror("open");
+            disk_size = 0;
+        }
         kv = new_kv(VDISK_SIZE_BYTES, 0, TYPE_UINT64,
                     sizeof (uint64_t), &disk_size);
         kvset_add(ps, kv);
-
         returnd.iov_len = 0;
         returnd.iov_base = kvset_marshal(ps, (int *)&(returnd.iov_len));
         msg->hinfo.data_type = DATA_TYPE_PS;

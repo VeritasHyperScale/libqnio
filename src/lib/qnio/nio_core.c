@@ -317,8 +317,8 @@ write_to_network(struct conn *conn)
     struct qnio_msg *msg = NULL;
     io_vector *iovec;
     struct iovec header;
-    size_t len, n;
-    int iovcount, i;
+    size_t len;
+    int iovcount, i, n;
 
     winfo = &conn->winfo;
     if (winfo->state == NSWS_WRITE_START) {
@@ -347,7 +347,7 @@ write_to_network(struct conn *conn)
     len = io_iov_remaining_payload(&winfo->iovec);
     iovcount = io_iov_count(&winfo->iovec);
     n = conn->rem.io_class->writev(&conn->rem, winfo->iovec.cur_iovec, iovcount);
-    nioDbg("wrote %ld bytes to remote [%d]", n, errno);
+    nioDbg("wrote %d bytes to remote [%d]", n, errno);
 
     /* entire payload has been written over the wire */
     if (n == len) {
