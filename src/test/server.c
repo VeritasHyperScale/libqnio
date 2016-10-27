@@ -23,13 +23,12 @@
 #include <signal.h>
 #include "qnio_api.h"
 
-#define VDISK_DIR           "/tmp"
 #define VDISK_SIZE_BYTES    "vdisk_size_bytes"
 
 int verbose = 0;
-int mem_only = 0;
 int parallel = 0;
 char *hostname = "127.0.0.1";
+char *vdisk_dir = "/tmp";
 FILE *backing_file;
 
 static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
@@ -136,7 +135,7 @@ void *pdispatch(void *data)
     case IOR_VDISK_STAT:
         strcpy(vdisk_path, msg->hinfo.target);
         bname = basename(vdisk_path);
-        sprintf(vdisk_path, "%s/%s", VDISK_DIR, bname);
+        sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
         fd = open(vdisk_path, O_RDONLY);
         if (fd >= 0) {
             if (fstat(fd, &stat)== 0) {
@@ -200,6 +199,16 @@ void server_callback(struct qnio_msg *msg)
     }
 }
 
+void
+usage()
+{
+    printf("Usage: qnio_server [-d <directory>] [-p] [-v] [-h] \n"
+            "\t d -> Vdisk directory\n"
+            "\t p -> Run commands in separate thread\n"
+            "\t h -> Help\n"
+            "\t v -> Verbose\n");
+}
+
 int main(int argc, char **argv)
 {
     int err;
@@ -207,20 +216,20 @@ int main(int argc, char **argv)
 
     signal(SIGPIPE, SIG_IGN); 
 
-    while ((c = getopt(argc, argv, "h:mpv")) != -1) {
+    while ((c = getopt(argc, argv, "d:hHpv")) != -1) {
         switch (c) {
-        case 'h':
-            hostname = optarg;
-            break;
-        case 'm':
-            mem_only = 1;
-            break;
+        case 'd':
+            vdisk_dir = optarg;
         case 'p':
             parallel = 1;
             break;
         case 'v':
             verbose = 1;
             break;
+        case 'H':
+        case 'h':
+            usage();
+            exit(0);
         default:
             break;
         }
