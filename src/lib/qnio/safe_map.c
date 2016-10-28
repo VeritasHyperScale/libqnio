@@ -59,3 +59,9 @@ safe_map_find(safe_map_t *map, int key)
 
     return entry;
 }
+
+QNIO_API_(void)
+safe_map_free(safe_map_t *map)
+{
+    qnio_map_free(map->dmap);
+}

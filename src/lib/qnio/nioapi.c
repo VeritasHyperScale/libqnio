@@ -19,9 +19,10 @@
 #define QNIO_LOGFILE_SZ              67108864
 
 /*
- * Bump up the version everytime this file is modified
+ * Supported versions
  */
-int qnio_version = 32;
+int32_t qnio_min_version = 33; 
+int32_t qnio_max_version = 33;
 
 #define QNIO_QEMU_VDISK_SIZE_STR              "vdisk_size_bytes"
 #define QNIO_QEMU_VDISK_GEOM_HEADS_U32        "vdisk_geom_heads"
@@ -61,11 +62,28 @@ client_callback(struct qnio_msg *msg)
     return;
 }
 
+int32_t
+iio_min_version(void)
+{
+    return qnio_min_version;
+}
+
+int32_t
+iio_max_version(void)
+{
+    return qnio_max_version;
+}
+
 void *
-iio_init(iio_cb_t cb)
+iio_init(int32_t version, iio_cb_t cb)
 {
     struct ioapi_ctx *apictx = NULL;
 
+    if (version <  qnio_min_version || version > qnio_max_version) {
+        nioDbg("Version [%d] not supported. Supported versions[%d - %d]",
+               version, qnio_min_version, qnio_max_version);
+        return NULL;
+    }
     if(cb == NULL) {
         nioDbg("callback is null");
         return NULL;
@@ -83,7 +101,22 @@ iio_init(iio_cb_t cb)
     apictx->io_cb = cb;
     apictx->qnioctx = qnio_client_init(client_callback);
     apictx->qnioctx->apictx = apictx;
+    nioDbg("Created API context %p\n", apictx);
     return apictx;
+}
+
+void
+iio_fini(void *ctx)
+{
+    struct ioapi_ctx *apictx = ctx;
+
+    nioDbg("free API context %p\n", apictx); 
+    qnio_client_fini(apictx->qnioctx);
+    safe_map_free(&apictx->channels);
+    safe_map_free(&apictx->devices);
+    apictx->qnioctx = NULL;
+    apictx->io_cb = NULL;
+    free(apictx);
 }
 
 int32_t 

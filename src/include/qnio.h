@@ -74,7 +74,8 @@ struct qnio_client_epoll_unit
     struct epoll_event *activefds;      
     struct qnio_ctx *ctx;
     pthread_t client_epoll;
-    int epoll_fd;       
+    int epoll_fd;
+    int exit_thread;
 };
 
 struct qnio_ctx
@@ -143,6 +144,7 @@ struct qnio_msg
 
 
 struct qnio_ctx * qnio_client_init(qnio_notify client_notify);
+void qnio_client_fini(struct qnio_ctx *);
 qnio_error_t qnio_create_channel(struct qnio_ctx *ctx, char *channel, char *port);
 qnio_error_t qnio_send(struct qnio_ctx *ctx, struct qnio_msg *msg);
 qnio_error_t qnio_send_recv(struct qnio_ctx *ctx, struct qnio_msg *msg);
