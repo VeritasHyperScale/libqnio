@@ -463,3 +463,9 @@ QNIO_API_(void *) qnio_map_find(const qnio_map * aMap, const void *key)
     }
     return (NULL);
 }
+
+QNIO_API_(void) qnio_map_free(qnio_map *aMap)
+{
+    assert(aMap->count == 0);
+    free(aMap);
+}

@@ -104,6 +104,7 @@ QNIO_API_(qnio_map *) new_qnio_map(qnio_compare cmp, qnio_destructor key_delete,
 QNIO_API_(int) qnio_map_insert(qnio_map * aMap, void *key, void *value);
 QNIO_API_(int) qnio_map_delete(qnio_map * aMap, const void *key);
 QNIO_API_(void *) qnio_map_find(const qnio_map * aMap, const void *key);
+QNIO_API_(void) qnio_map_free(qnio_map * aMap);
 
 typedef struct __qnio_stream
 {
@@ -424,6 +425,7 @@ QNIO_API_(void) safe_map_init(safe_map_t *map);
 QNIO_API_(void *) safe_map_find(safe_map_t *map, int key);
 QNIO_API_(void) safe_map_insert(safe_map_t *map, int key, void *value);
 QNIO_API_(void) safe_map_delete(safe_map_t *map, int key);
+QNIO_API_(void) safe_map_free(safe_map_t *map);
 
 #ifdef __cplusplus
 }

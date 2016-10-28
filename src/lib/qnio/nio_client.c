@@ -48,8 +48,8 @@ close_connection(struct conn *c)
 {
     int          i = 0;
 
-    if (c->rem.io_class != NULL) {
-        c->rem.io_class->close(&c->rem);
+    if (c->ns.io_class != NULL) {
+        c->ns.io_class->close(&c->ns);
     }
 
     if (c->ev.io_class != NULL) {
@@ -141,7 +141,7 @@ open_connection(struct channel *channel, int flags, int euid)
     memset(c, 0, sizeof (struct conn));
     c->channel = channel;
     c->ctx = channel->ctx;
-    c->rem.conn = c->loc.conn = c->ev.conn = c;
+    c->ns.conn = c->ev.conn = c;
     c->euid = euid;
 
     set_close_on_exec(sock);
@@ -152,17 +152,13 @@ open_connection(struct channel *channel, int flags, int euid)
         goto out;
     }
 
-    c->loc.io_class = &io_qnio;
-    c->loc.sock = DUMMY_FD; /* There is no sock/fd associated with io qnio*/
-    c->loc.flags = FLAG_DONT_CLOSE;
-
     c->ev.io_class = &io_event;
     c->ev.sock = eventfd(0, EFD_NONBLOCK);
     c->ev.flags = FLAG_DONT_CLOSE;
 
-    c->rem.io_class = &io_socket;
-    c->rem.sock = sock;
-    c->rem.flags = FLAG_DONT_CLOSE;
+    c->ns.io_class = &io_socket;
+    c->ns.sock = sock;
+    c->ns.flags = FLAG_DONT_CLOSE;
 
     reset_read_state(&c->rinfo);
     reset_write_state(&c->winfo);
@@ -170,9 +166,9 @@ open_connection(struct channel *channel, int flags, int euid)
     LIST_INIT(&c->msgs);
     c->flags |= flags;
 
-    /* Add local and remote sockets to epoll ctl */
+    /* Add event and network sockets to epoll ctl */
     ep_event.events = EPOLLIN;
-    ep_event.data.ptr = &c->loc;
+    ep_event.data.ptr = &c->ev;
     epoll_err = epoll_ctl(channel->ctx->ceu[euid].epoll_fd, EPOLL_CTL_ADD,
                     c->ev.sock, &ep_event);
     if (epoll_err == -1) {
@@ -180,9 +176,9 @@ open_connection(struct channel *channel, int flags, int euid)
         goto out;
     }
     ep_event.events = EPOLLIN | EPOLLRDHUP;
-    ep_event.data.ptr = &c->rem;
+    ep_event.data.ptr = &c->ns;
     epoll_err = epoll_ctl(channel->ctx->ceu[euid].epoll_fd, EPOLL_CTL_ADD,
-                    c->rem.sock, &ep_event);
+                    c->ns.sock, &ep_event);
     if (epoll_err == -1) {
         nioDbg("open_connection: epoll_ctl2 error %d",errno);
         goto out;
@@ -206,7 +202,7 @@ out:
  * Reopens a single connection asynchronously in a channel.
  * Part of the workflow to reopen a channel that was
  * disconnected previously.
- * Opens the remote socket associated with the connection
+ * Opens the network socket associated with the connection
  * in non-blocking mode (if specified as such).
  * If flag says async, connection is made blocking and added to epoll
  * list upon success.
@@ -291,11 +287,11 @@ reopen_connection(struct channel *channel, struct conn *c, int async, int euid)
         if(async && errno == EINPROGRESS) {
             nioDbg("Connect in progress");
             ck_pr_or_int(&c->flags, CONN_FLAG_INPROGRESS);
-            c->rem.sock = sock;
+            c->ns.sock = sock;
             ep_event.events = EPOLLOUT | EPOLLERR;
-            ep_event.data.ptr = &c->rem;
+            ep_event.data.ptr = &c->ns;
             epoll_err = epoll_ctl(channel->ctx->ceu[euid].epoll_fd,
-                                  EPOLL_CTL_ADD, c->rem.sock, &ep_event);
+                                  EPOLL_CTL_ADD, c->ns.sock, &ep_event);
             if (epoll_err == -1) {
                 err = errno;
                 nioDbg("epoll_ctl error %d",err);
@@ -306,7 +302,7 @@ reopen_connection(struct channel *channel, struct conn *c, int async, int euid)
 
     freeaddrinfo(infos);
     infos = NULL;
-    c->rem.sock = sock;
+    c->ns.sock = sock;
 
     if(!async) {
         err = make_socket_non_blocking(sock);
@@ -318,9 +314,9 @@ reopen_connection(struct channel *channel, struct conn *c, int async, int euid)
     }
 
     ep_event.events = EPOLLIN | EPOLLRDHUP;
-    ep_event.data.ptr = &c->rem;
+    ep_event.data.ptr = &c->ns;
     epoll_err = epoll_ctl(channel->ctx->ceu[euid].epoll_fd, EPOLL_CTL_ADD,
-                    c->rem.sock, &ep_event);
+                    c->ns.sock, &ep_event);
     if (epoll_err == -1) {
         err = errno;
         nioDbg("epoll_ctl error %d",err);
@@ -343,7 +339,7 @@ out:
  * This function will try and re-establish a channel that was previously
  * disconnected.
  * The client disconnect handling code will preserve the channel in its
- * pristine state, minus the invalid remote socket and flag it as such
+ * pristine state, minus the invalid network socket and flag it as such
  * This code will go over the connections and reopen them one at a time.
  * If all connections are established channel is marked as usable again.
  * Returns 0 for sucess and -1 for failure.
@@ -457,6 +453,46 @@ out:
     return (ctx);
 }
 
+void
+qnio_client_fini(struct qnio_ctx *ctx)
+{
+    int i;
+    struct epoll_event ep_event;
+    int fd[MAX_CLIENT_EPOLL_UNITS+1];
+
+    /*
+     * Stop epoll threads
+     */
+
+    nioDbg("Starting client fini"); 
+    for(i=0; i < MAX_CLIENT_EPOLL_UNITS+1; i++) {
+        ck_pr_or_int(&(ctx->ceu[i].exit_thread), 1);
+        fd[i] = eventfd(0, EFD_NONBLOCK);
+        ep_event.events = EPOLLIN;
+        ep_event.data.ptr = NULL;
+        epoll_ctl(ctx->ceu[i].epoll_fd, EPOLL_CTL_ADD, fd[i],  &ep_event);
+        eventfd_write(fd[i], 1);
+    }
+
+    for(i=0; i < MAX_CLIENT_EPOLL_UNITS+1; i++) {
+        pthread_join(ctx->ceu[i].client_epoll, NULL);
+    }
+
+    for(i=0;i<MAX_CLIENT_EPOLL_UNITS+1;i++) {
+        if (ctx->ceu[i].epoll_fd >= 0) {
+            close(ctx->ceu[i].epoll_fd);
+        }
+        if (fd[i] >= 0) {
+            close(fd[i]);
+        }
+        free(ctx->ceu[i].activefds);
+    }
+
+    free(ctx->channels);
+    slab_free(&ctx->msg_pool);
+    free(ctx);
+}
+
 qnio_error_t
 qnio_create_channel(struct qnio_ctx *ctx, char *hostname, char *port)
 {
@@ -525,6 +561,9 @@ client_epoll(void *args)
         n = epoll_wait(eu->epoll_fd, eu->activefds, MAXFDS,
                        EPOLL_WAIT_TIMEOUT);
 
+        if (ck_pr_load_int(&eu->exit_thread)) {
+            break;
+        }
         for (i = 0; i < n; i++) {
             if (eu->activefds[i].events & EPOLLRDHUP) {
                 /* This implies client socket disconnected */
@@ -552,7 +591,7 @@ client_epoll(void *args)
 
                 /* Remove socket from epoll */
                 epoll_ctl(eu->epoll_fd, EPOLL_CTL_DEL, e->sock, &ep_event);
-                /* Flush pending messages from local message queue for this connection */
+                /* Flush pending messages from message queue for this connection */
                 flush_message_queue(e->conn);
                 continue;
             }
@@ -567,15 +606,15 @@ client_epoll(void *args)
                 continue;
             } else {
                 e = (struct endpoint *)eu->activefds[i].data.ptr;
-                if (e->sock == DUMMY_FD) {
-                    process_local_endpoint(e);
+                if (e->io_class == &io_event) {
+                    process_outgoing_messages(e->conn);
                 } else {
-                    process_remote_endpoint(e);
+                    process_incoming_messages(e->conn);
                 }
             }
         }
     }
-    free(eu->activefds);
+    nioDbg("client epoll thread exiting, epoll unit = %p", eu);
     return (NULL);
 }
 

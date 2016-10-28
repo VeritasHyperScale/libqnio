@@ -12,6 +12,11 @@
 #define QNIO_API_H
 
 /*
+ * Bump up the version everytime this file is modified
+ */
+#define QNIO_VERSION    33
+
+/*
  * These are the opcodes referenced by qemu callback.
  * At present vxhs_iio_callback().
  */
@@ -100,7 +105,12 @@
 typedef void (*iio_cb_t) (int32_t rfd, uint32_t reason, void *ctx,
                           uint32_t error, uint32_t opcode);
  
-void *iio_init(iio_cb_t cb);
+void *iio_init(int32_t version, iio_cb_t cb);
+
+void iio_fini(void *);
+
+int32_t iio_min_version(void);
+int32_t iio_max_version(void);
 
 /*
  * INPUT:

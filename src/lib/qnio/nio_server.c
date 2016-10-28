@@ -31,7 +31,7 @@ add_socket(int sock, struct qnio_epoll_unit *eu)
         memset(c, 0, sizeof (struct conn));
 
         s_ctx->nrequests++;
-        c->rem.conn = c->loc.conn = c->ev.conn = c;
+        c->ns.conn = c->ev.conn = c;
         c->ctx = s_ctx;
         c->sa = sa;
 
@@ -40,17 +40,13 @@ add_socket(int sock, struct qnio_epoll_unit *eu)
 
         set_close_on_exec(sock);
 
-        c->loc.io_class = &io_qnio;
-        c->loc.sock = DUMMY_FD;
-        c->loc.flags |= FLAG_DONT_CLOSE;
-
         c->ev.io_class = &io_event;
         c->ev.sock = eventfd(0, EFD_NONBLOCK);
         c->ev.flags |= FLAG_DONT_CLOSE;
 
-        /* Add local and remote sockets to epoll ctl */
+        /* Add event and network sockets to epoll ctl */
         ep_event.events = EPOLLIN;
-        ep_event.data.ptr = &c->loc;
+        ep_event.data.ptr = &c->ev;
         epoll_err = epoll_ctl(eu->send_epoll_fd, EPOLL_CTL_ADD,
                               c->ev.sock, &ep_event);
         if (epoll_err == -1) {
@@ -60,9 +56,9 @@ add_socket(int sock, struct qnio_epoll_unit *eu)
         }
 
         safe_fifo_init(&c->fifo_q);
-        c->rem.io_class = &io_socket;
-        c->rem.sock = sock;
-        c->rem.flags |= FLAG_DONT_CLOSE;
+        c->ns.io_class = &io_socket;
+        c->ns.sock = sock;
+        c->ns.flags |= FLAG_DONT_CLOSE;
 
         reset_read_state(&c->rinfo);
         reset_write_state(&c->winfo);
@@ -82,7 +78,7 @@ add_socket(int sock, struct qnio_epoll_unit *eu)
         LIST_INIT(&c->msgs);
         pthread_mutex_init(&c->msg_lock, NULL);
     }
-    return (&c->rem);
+    return (&c->ns);
 }
 
 qnio_error_t
@@ -192,7 +188,7 @@ server_send_epoll(void *args)
                     disconnect(e->conn);
                     continue;
                 }
-                process_local_endpoint(e);
+                process_outgoing_messages(e->conn);
             } else if ((eu->send_activefds[i].events & EPOLLERR) ||
                 (eu->send_activefds[i].events & EPOLLHUP) ||
                 (!(eu->send_activefds[i].events & EPOLLIN))) {
@@ -231,7 +227,7 @@ server_recv_epoll(void *args)
                 }
 
                 epoll_ctl(eu->recv_epoll_fd, EPOLL_CTL_DEL,
-                    e->conn->rem.sock, &ep_event);
+                    e->conn->ns.sock, &ep_event);
 
                 /* Mark pending messages on this connection as
                  * having no connection anymore
@@ -249,10 +245,10 @@ server_recv_epoll(void *args)
             }
             else if (eu->recv_activefds[i].events & EPOLLIN) {
                 e = (struct endpoint *)eu->recv_activefds[i].data.ptr;
-                process_remote_endpoint(e);
+                process_incoming_messages(e->conn);
 
                 /* Check whether we should close this connection */
-                if (e->conn->rem.flags & FLAG_CLOSED) {
+                if (e->conn->ns.flags & FLAG_CLOSED) {
                     disconnect(e->conn);
                 }
             } else if ((eu->recv_activefds[i].events & EPOLLERR) ||

@@ -181,8 +181,7 @@ struct conn
     int loc_port; /* Local port */
     int status; /* Reply status code */
     time_t expire_time; /* Expiration time */
-    struct endpoint loc; /* Local stream */
-    struct endpoint rem; /* Remote stream */
+    struct endpoint ns; /* Network stream */
     struct endpoint ev; /* Event Stream, for wake-up calls */
     struct NSReadInfo rinfo; /* State of network read */
     struct NSWriteInfo winfo; /* State of network write */
@@ -222,8 +221,8 @@ int is_resp_required(struct qnio_msg *msg);
 
 qnio_byte_t * generate_header(struct qnio_msg *msg);
 void process_connection(struct conn *c);
-void process_local_endpoint(struct endpoint *local);
-void process_remote_endpoint(struct endpoint *remote);
+void process_outgoing_messages(struct conn *conn);
+void process_incoming_messages(struct conn *conn);
 void disconnect(struct conn *c);
 int close_connection(struct conn *c);
 void flush_message_queue(struct conn *c);

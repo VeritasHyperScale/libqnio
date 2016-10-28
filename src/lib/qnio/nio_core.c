@@ -60,7 +60,7 @@ flush_pending_messages(struct conn *c)
 
 /*
  * Flushes all messages from
- * the local send queue corresponding to the given connection.
+ * the send queue corresponding to the given connection.
  * Calls notify (io_done) for each of the messages
  * and removes the message from the map.
  */
@@ -106,9 +106,9 @@ disconnect(struct conn *c)
         return;
     }
 
-    nioDbg("Disconnecting network conn = [%d]", c->rem.sock);
-    if (c->rem.io_class != NULL) {
-        c->rem.io_class->close(&c->rem);
+    nioDbg("Disconnecting network conn = [%d]", c->ns.sock);
+    if (c->ns.io_class != NULL) {
+        c->ns.io_class->close(&c->ns);
     }
     if (c->ev.io_class != NULL) {
         c->ev.io_class->close(&c->ev);
@@ -346,8 +346,8 @@ write_to_network(struct conn *conn)
     assert(winfo->state == NSWS_WRITE_DATA);
     len = io_iov_remaining_payload(&winfo->iovec);
     iovcount = io_iov_count(&winfo->iovec);
-    n = conn->rem.io_class->writev(&conn->rem, winfo->iovec.cur_iovec, iovcount);
-    nioDbg("wrote %d bytes to remote [%d]", n, errno);
+    n = conn->ns.io_class->writev(&conn->ns, winfo->iovec.cur_iovec, iovcount);
+    nioDbg("wrote %d bytes to network [%d]", n, errno);
 
     /* entire payload has been written over the wire */
     if (n == len) {
@@ -403,29 +403,29 @@ stop_endpoint(struct endpoint *endpoint)
 static inline void
 read_from_network(struct conn *conn)
 {
-    struct endpoint *remote;
+    struct endpoint *ns;
     struct NSReadInfo *rinfo;
     size_t len;
     int n, iovcount;
 
-    remote = &conn->rem;
+    ns = &conn->ns;
     rinfo = &conn->rinfo;
     iovcount = io_iov_count(&rinfo->iovec);
-    n = remote->io_class->readv(remote, rinfo->iovec.cur_iovec, iovcount);
-    nioDbg("read %d bytes from remote endpoint [%d]", n, errno);
+    n = ns->io_class->readv(ns, rinfo->iovec.cur_iovec, iovcount);
+    nioDbg("read %d bytes from network endpoint [%d]", n, errno);
     if (n > 0) {
         io_iov_forword(&rinfo->iovec, n);
 #ifdef QNIO_HOUSEKEEPING
         conn->ctx->in += n;
 #endif
-    } else if (!(remote->flags & FLAG_DONT_CLOSE)&&
+    } else if (!(ns->flags & FLAG_DONT_CLOSE)&&
                !(n == -1 && (ERRNO == EINTR || ERRNO == EWOULDBLOCK))) {
         nioDbg("Stopping endpoint");
-        stop_endpoint(remote);
+        stop_endpoint(ns);
     }
 
     len = io_iov_remaining_payload(&rinfo->iovec);
-    nioDbg("Remaining %ld bytes from remote endpoint [%d]", len, errno);
+    nioDbg("Remaining %ld bytes from network endpoint [%d]", len, errno);
     if (len == 0) {
         rinfo->state = NSRS_PROCESS_DATA;
     }
@@ -436,11 +436,8 @@ read_from_network(struct conn *conn)
  * Handle outgoing messages.
  */
 void
-process_local_endpoint(struct endpoint *local)
+process_outgoing_messages(struct conn *conn)
 {
-    struct conn *conn;
-
-    conn = local->conn;
     /* reset the ding */
     conn->ev.io_class->read(&conn->ev, NULL, 1);
     if (safe_fifo_size(&conn->fifo_q) > 0) {
@@ -453,13 +450,11 @@ process_local_endpoint(struct endpoint *local)
  * Handle incoming messages.
  */
 void
-process_remote_endpoint(struct endpoint *remote)
+process_incoming_messages(struct conn *conn)
 {
-    struct conn *conn;
     struct NSReadInfo *rinfo;
     struct iovec header;
 
-    conn = remote->conn;
     rinfo = &conn->rinfo;
     if (rinfo->state == NSRS_READ_START) {
         /*
