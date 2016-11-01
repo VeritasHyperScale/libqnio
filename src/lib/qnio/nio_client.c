@@ -437,6 +437,7 @@ qnio_client_init(qnio_notify client_notify)
     /* Initialize slab pools */
     slab_init(&ctx->msg_pool, MSG_POOL_SIZE, sizeof(struct qnio_msg), 0, NULL);
     for(i=0;i<MAX_CLIENT_EPOLL_UNITS+1;i++) {
+        ck_pr_store_int(&(ctx->ceu[i].exit_thread), 0);
         ctx->ceu[i].activefds = calloc(MAXFDS, sizeof event);
         ctx->ceu[i].epoll_fd = epoll_create1(0);
         if(ctx->ceu[i].epoll_fd == -1) {
@@ -466,7 +467,7 @@ qnio_client_fini(struct qnio_ctx *ctx)
 
     nioDbg("Starting client fini"); 
     for(i=0; i < MAX_CLIENT_EPOLL_UNITS+1; i++) {
-        ck_pr_or_int(&(ctx->ceu[i].exit_thread), 1);
+        ck_pr_store_int(&(ctx->ceu[i].exit_thread), 1);
         fd[i] = eventfd(0, EFD_NONBLOCK);
         ep_event.events = EPOLLIN;
         ep_event.data.ptr = NULL;
