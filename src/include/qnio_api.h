@@ -11,6 +11,8 @@
 #ifndef QNIO_API_H
 #define QNIO_API_H
 
+#include <sys/uio.h>
+
 /*
  * Bump up the version everytime this file is modified
  */
