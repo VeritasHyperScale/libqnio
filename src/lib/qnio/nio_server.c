@@ -242,8 +242,7 @@ server_recv_epoll(void *args)
 
                 /* Ding send epoll for cleanup */
                 e->conn->ev.io_class->write(&e->conn->ev, NULL, 0);
-            }
-            else if (eu->recv_activefds[i].events & EPOLLIN) {
+            } else if (eu->recv_activefds[i].events & EPOLLIN) {
                 e = (struct endpoint *)eu->recv_activefds[i].data.ptr;
                 process_incoming_messages(e->conn);
 
@@ -425,10 +424,6 @@ qnio_send_resp(struct qnio_msg *msg)
     pthread_mutex_lock(&c->msg_lock);
     LIST_DEL(&msg->lnode);
     pthread_mutex_unlock(&c->msg_lock);
-    if (msg->hinfo.payload_size > IO_BUF_SIZE) {
-        /* return payload too big */
-        return (QNIOERROR_INVALIDARG);
-    }
     if (c == NULL || (ck_pr_load_int(&c->flags) & CONN_FLAG_DISCONNECTED)) {
         nioDbg("Server side connection is disconnected. Not enqueuing response.");
         /*
