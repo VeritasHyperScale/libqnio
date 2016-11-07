@@ -20,15 +20,17 @@
 
 #define IO_BUF_SIZE           4603904  /* 4.4MB */
 
-#define qnioErr(...) {\
+#ifdef DEBUG_QNIO
+#define qnioDbg(...) {\
         time_t t = time(0); \
         char buf[9] = {0}; \
         strftime(buf, 9, "%H:%M:%S", localtime(&t)); \
         fprintf(stderr, "[%s: %lu] %d: %s():\t", buf, pthread_self(), __LINE__, __FUNCTION__);\
         fprintf(stderr, __VA_ARGS__);\
 }
-
-#define qnioDbg qnioErr
+#else
+#define qnioDbg(...) ((void)0)
+#endif /* DEBUG_QNIO */
 
 typedef struct iio_msg_t
 {

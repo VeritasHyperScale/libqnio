@@ -205,24 +205,45 @@ void server_callback(struct qnio_msg *msg)
 void
 usage()
 {
-    printf("Usage: qnio_server [-d <directory>] [-p] [-v] [-h] \n"
+    printf("Usage: qnio_server [-d <directory>] [-l <logfile>] [-p] [-v] [-h] \n"
             "\t d -> Vdisk directory\n"
+            "\t l -> log file\n"
             "\t p -> Run commands in separate thread\n"
             "\t h -> Help\n"
             "\t v -> Verbose\n");
 }
 
+static void termsig_handler(int signum)
+{
+    exit(0);
+}
+
 int main(int argc, char **argv)
 {
-    int err;
+    struct sigaction sa_sigterm;
+    char *logfile = "/dev/null";
     int c;
 
+    /*
+     * Handle SIGTERM signal gracefully.
+     */
+    memset(&sa_sigterm, 0, sizeof(sa_sigterm));
+    sa_sigterm.sa_handler = termsig_handler;
+    sigaction(SIGTERM, &sa_sigterm, NULL);
+
+    /*
+     * Ignore SIGPIPE
+     */ 
     signal(SIGPIPE, SIG_IGN); 
 
-    while ((c = getopt(argc, argv, "d:hHpv")) != -1) {
+    while ((c = getopt(argc, argv, "d:l:hHpv")) != -1) {
         switch (c) {
         case 'd':
             vdisk_dir = optarg;
+            break;
+        case 'l':
+            logfile = optarg;
+            break;
         case 'p':
             parallel = 1;
             break;
@@ -237,23 +258,42 @@ int main(int argc, char **argv)
             break;
         }
     }
-    err = qnio_server_init(server_callback);
-    if (err != 0) {
-        printf("server init failed\n");
-        exit(0);
-    }
-  
-    printf("server initialized\n");
 
-    err = qnio_server_start(hostname, QNIO_DEFAULT_PORT);
-    if (err != 0) {
-        printf("server start failed\n");
-        exit(0);
+    /*
+     * Redirect stdin to /dev/null
+     */
+    if (!freopen("/dev/null", "r", stdin)) {
+        fprintf(stderr, "stdin redirection failed\n");
+        exit(-1);
     }
-    printf("server started\n");
+
+    /*
+     * Redirect stdout, stderr to
+     * specified log device.
+     */
+    if (!freopen(logfile, "a+", stdout)) {
+        fprintf(stderr, "stdout redirection failed for %s\n", logfile);
+        exit(-1);
+    }
+
+    if(dup2(fileno(stdout), fileno(stderr)) < 0) {
+        fprintf(stderr, "dup2 failed for stdout\n");
+        exit(-1);
+    }
+
+    if (qnio_server_init(server_callback) != 0) {
+        fprintf(stderr, "Server init failed\n");
+        exit(-1);
+    }
+    printf("Server initialized\n");
+    
+    if(qnio_server_start(hostname, QNIO_DEFAULT_PORT) != 0) {
+        fprintf(stderr, "Server start failed\n");
+        exit(-1);
+    }
+    printf("Server started\n");
     while (1) {
         sleep(10000);
     }
     exit(0);
 }
-

@@ -234,14 +234,16 @@ void reset_write_state(struct NSWriteInfo *winfo);
 int create_and_bind(char *node, char *port);
 void clear_msg(struct qnio_msg *msg);
 
-#define nioErr(fmt, ...) {\
+#ifdef DEBUG_QNIO
+#define nioDbg(fmt, ...) {\
         time_t t = time(0); \
         char buf[9] = {0}; \
         strftime(buf, 9, "%H:%M:%S", localtime(&t)); \
         fprintf(stderr, "[%s: %lu] %d: %s():\t" fmt "\n",\
 		buf, pthread_self(), __LINE__, __FUNCTION__, ##__VA_ARGS__);\
 }
-
-#define nioDbg nioErr
+#else
+#define nioDbg(fmt, ...) ((void)0)
+#endif /* DEBUG_QNIO */
 
 #endif /* QNIOEFS_HEADER_DEFINED */
