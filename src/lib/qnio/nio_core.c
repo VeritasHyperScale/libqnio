@@ -9,6 +9,7 @@
  */
 
 #include <pthread.h>
+#include <sys/param.h>
 #include "qnio.h"
 #include "defs.h"
 
@@ -301,13 +302,15 @@ process_header(struct conn *conn)
 qnio_byte_t *
 generate_header(struct qnio_msg *msg)
 {
-    qnio_byte_t     *header;
-    int            mark = REQ_MARKER;
+    qnio_byte_t *header;
+    int mark = REQ_MARKER;
+    int copy_bytes;
 
     header = msg->header;
-    memcpy(header, &mark, sizeof (int));
-    memcpy(&header[4], msg, (HEADER_LEN-4));
-    return (header);
+    memcpy(header, &mark, sizeof(int));
+    copy_bytes = MIN(sizeof(struct qnio_header), (HEADER_LEN - 4));
+    memcpy(&header[4], msg, copy_bytes);
+    return header;
 }
 
 static inline void
