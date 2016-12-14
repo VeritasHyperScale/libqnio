@@ -23,15 +23,13 @@ make_socket_non_blocking(int sfd)
     int nodelay = 1;
 
     flags = fcntl(sfd, F_GETFL, 0);
-    if (flags == -1)
-    {
+    if (flags == -1) {
         nioDbg("fcntl error");
         return (-1);
     }
     flags |= O_NONBLOCK;
     s = fcntl(sfd, F_SETFL, flags);
-    if (s == -1)
-    {
+    if (s == -1) {
         nioDbg("fcntl error");
         return (-1);
     }

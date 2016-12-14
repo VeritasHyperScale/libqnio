@@ -24,27 +24,16 @@
 #define MAX_DRV_NAME_LEN            NAME_SZ64
 #define REQ_MARKER                  0x5CA1AB1E
 #define REQ_ERROR                   0xB000B000
-#define IO_QUEUE_DEPTH              16
 #define IO_POOL_SIZE                4096
 #define IO_POOL_BUF_SIZE            65536 
-#define BILLION                     1E9
 #define BUF_ALIGN                   4096
-#define DUMMY_FD                    -999
-
-#define CONN_FLAG_REGULAR           1
-#define CONN_FLAG_STREAM            2
-#define CONN_FLAG_STREAM_CLOSE      4
-#define CONN_FLAG_DISCONNECTED      8
-#define CONN_FLAG_INPROGRESS        16 
+#define CRC_MODULO                  256
 
 #define QNIO_SYSCALL(expression)                   \
     ({ long int __result;                         \
        do { __result = (long int)(expression); }  \
        while (__result == -1L && (errno == EAGAIN || errno == EINTR)); \
        __result; })
-
-#define ERRNO                       errno
-#define CRC_MODULO                  256
 
 enum qnio_mode {
     QNIO_SERVER_MODE,
@@ -117,7 +106,7 @@ struct endpoint
 };
 
 /*
- * Endpoint status
+ * Endpoint flags
  */
 #define FLAG_R                 0x0001       /* Can read in general  */
 #define FLAG_W                 0x0002       /* Can write in general */
@@ -161,6 +150,15 @@ struct conn
     slab_t io_buf_pool;
     pthread_mutex_t msg_lock;
 };
+
+/*
+ * "struct conn" flags.
+ */
+#define CONN_FLAG_REGULAR           0x0001
+#define CONN_FLAG_STREAM            0x0002
+#define CONN_FLAG_STREAM_CLOSE      0x0004
+#define CONN_FLAG_DISCONNECTED      0x0008
+#define CONN_FLAG_INPROGRESS        0x0010
 
 void process_outgoing_messages(struct conn *conn);
 void process_incoming_messages(struct conn *conn);

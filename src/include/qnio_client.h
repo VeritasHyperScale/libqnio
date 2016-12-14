@@ -1,6 +1,10 @@
 #ifndef QNIO_CLIENT_HEADER_DEFINED
 #define QNIO_CLIENT_HEADER_DEFINED
 
+/*
+ * First 8 will be used for default connections.
+ * Last one is used specific connections such as EDS.
+ */
 #define MAX_CLIENT_EPOLL_UNITS      9
 #define CHNL_DEFAULT_CONNECTIONS    8
 #define MAX_STREAMS                 1024
@@ -27,22 +31,24 @@ struct qnio_client_ctx {
     struct qnio_client_epoll_unit ceu[MAX_CLIENT_EPOLL_UNITS];
 };
 
+/*
+ * Network Channel flags.
+ */
 #define CHAN_DISCONNECTED           1
 
 /*
- * Group of connections
+ * Network Channel is group of connections
  */
-
 struct network_channel
 {
     struct channel channel;
     char name[NAME_SZ64];
     char port[8];
-    struct conn *conn[MAX_CONN];    /* Array of connection pointers */
+    struct conn *conn[MAX_CONN];
     uint64_t free_conn_idx;
-    int next_stream_idx;
     int refcount;
     int flags;
+    int next_stream_idx;
     pthread_mutex_t conn_lock;
 };
 

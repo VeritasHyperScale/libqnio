@@ -23,14 +23,12 @@ void
 reset_read_state(struct NSReadInfo *rinfo)
 {
     rinfo->state = NSRS_READ_START;
-
     rinfo->hinfo.payload_size = 0;
     rinfo->hinfo.cookie = -1;
     rinfo->hinfo.crc = 0;
-
-    io_iov_clear(&rinfo->iovec);
     rinfo->buf = NULL;
     rinfo->buf_source = BUF_SRC_NONE;
+    io_iov_clear(&rinfo->iovec);
 }
 
 void
@@ -63,8 +61,8 @@ process_server_message(struct conn *conn)
     msg->io_buf = rinfo->buf;
     msg->buf_source = rinfo->buf_source;
     if (msg->hinfo.payload_size > 0) {
-        if(msg->hinfo.data_type == DATA_TYPE_RAW ||
-           msg->hinfo.data_type == DATA_TYPE_PS) {
+        if (msg->hinfo.data_type == DATA_TYPE_RAW ||
+            msg->hinfo.data_type == DATA_TYPE_PS) {
             msg->send = new_io_vector(1, NULL);
             req.iov_base = (void *)msg->io_buf;
             req.iov_len = msg->hinfo.payload_size;
@@ -254,22 +252,18 @@ write_to_network(struct conn *conn)
         /* dequeue msg from queue */
         msg = (struct qnio_msg *)safe_fifo_dequeue(&conn->fifo_q);
         nioDbg("Msg is written on wire msgid=%ld", msg->hinfo.cookie);
-        if(!is_resp_required(msg)) {
-            if(msg->hinfo.flags & QNIO_FLAG_REQ) {
-                 conn->ctx->notify(msg);
+        if (conn->ctx->mode == QNIO_CLIENT_MODE) {
+            if (is_resp_required(msg)) {
+                nioDbg("Msg is pending response msgid=%ld", msg->hinfo.cookie);
+                LIST_ADD(&conn->msgs, &msg->lnode);
             } else {
-                 if(msg->send) {
-                     io_vector_delete(msg->send);
-                 }
-                 if(msg->recv && msg->hinfo.data_type == DATA_TYPE_PS) {
-                     io_vector_delete(msg->recv);
-                 }
-                 iio_free_io_pool_buf(msg);
-                 slab_put(&conn->msg_pool, msg);
+                conn->ctx->notify(msg);
             }
         } else {
-            nioDbg("Msg is pending response msgid=%ld", msg->hinfo.cookie);
-            LIST_ADD(&conn->msgs, &msg->lnode);
+            /*
+             * conn->ctx->mode == QNIO_SERVER_MODE
+             */
+            iio_message_free(msg);
         }
     } else if (n > 0) {
         io_iov_forword(&winfo->iovec, n);
@@ -309,7 +303,7 @@ read_from_network(struct conn *conn)
         conn->ctx->in += n;
 #endif
     } else if (!(ns->flags & FLAG_DONT_CLOSE)&&
-               !(n == -1 && (ERRNO == EINTR || ERRNO == EWOULDBLOCK))) {
+               !(n == -1 && (errno == EINTR || errno == EWOULDBLOCK))) {
         nioDbg("Stopping endpoint");
         stop_endpoint(ns);
     }

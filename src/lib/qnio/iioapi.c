@@ -206,9 +206,6 @@ iio_msg_done(struct qnio_msg *msg)
     if (error == QNIOERROR_HUP) {
         nioDbg("QNIOERROR_HUP received on msgid=%ld %p",msg->hinfo.cookie, msg);
         switch (device->state) {
-        case IIO_DEVICE_FAILED:
-            break;
-
         case IIO_DEVICE_ACTIVE:
             device->state = IIO_DEVICE_QUIESCE;
             /* Continue */
@@ -220,6 +217,13 @@ iio_msg_done(struct qnio_msg *msg)
             channel->cd->chdrv_msg_resend_cleanup(msg);
             LIST_ADD(&device->retryq, &msg->lnode);
             retry = 1;
+            break;
+
+        case IIO_DEVICE_FAILED:
+            break;
+
+        default:
+            nioDbg("Unknown device state");
             break;
         }
     } else if (error) {
@@ -297,8 +301,6 @@ iio_msg_submit(struct iio_device *device, struct qnio_msg *msg, uint32_t flags)
         retry = iio_msg_done(msg);
         if (retry) {
             err = 0;
-        } else {
-            iio_message_free(msg);
         }
     }
     return err;
@@ -403,6 +405,7 @@ iio_open(const char *uri, const char *devid, uint32_t flags)
     struct iio_device *device;
     
     if(!uri || !devid) {
+        errno = EINVAL;
         return NULL;
     }
 
@@ -419,6 +422,7 @@ iio_open(const char *uri, const char *devid, uint32_t flags)
     channel = iio_channel_open(uri);
     if (channel == NULL) {
         pthread_mutex_unlock(&apictx->dev_lock);
+        errno = ENXIO;
         return NULL;
     }
 
@@ -498,7 +502,9 @@ iio_readv(void *dev_handle, void *ctx_out, struct iovec *iov, int iovcnt,
     }
 
     err = iio_msg_submit(device, msg, flags);
-    if(err == 0 && !(flags & IIO_FLAG_ASYNC)) {
+    if (err) {
+        iio_message_free(msg);
+    } else if (!(flags & IIO_FLAG_ASYNC)) {
         err = iio_msg_wait(msg);
         iio_message_free(msg);
     }
@@ -536,7 +542,9 @@ iio_writev(void *dev_handle, void *ctx_out, struct iovec *iov, int iovcnt,
     }
 
     err = iio_msg_submit(device, msg, flags);
-    if(err == 0 && !(flags & IIO_FLAG_ASYNC)) {
+    if (err) {
+        iio_message_free(msg);
+    } else if (!(flags & IIO_FLAG_ASYNC)) {
         err = iio_msg_wait(msg);
         iio_message_free(msg);
     }
@@ -614,7 +622,9 @@ iio_ioctl_json(void *dev_handle, uint32_t opcode, char *injson,
     msg->user_ctx = ctx_out;
     msg->hinfo.flags = QNIO_FLAG_REQ_NEED_RESP;
     err = iio_msg_submit(device, msg, flags);
-    if(err == 0 && !(flags & IIO_FLAG_ASYNC)) {
+    if (err) {
+        iio_message_free(msg);
+    } else if(!(flags & IIO_FLAG_ASYNC)) {
         err = iio_msg_wait(msg);
         if(err == 0) {
             if (msg->recv) {

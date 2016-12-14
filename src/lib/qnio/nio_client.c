@@ -379,8 +379,7 @@ flush_pending_messages(struct conn *c)
         msg->hinfo.err = QNIOERROR_HUP;
         if (msg->hinfo.flags & QNIO_FLAG_SYNC_REQ) {
             ck_pr_store_int(&msg->resp_ready, 1);
-        }
-        else if(c->ctx->notify) {
+        } else if (c->ctx->notify) {
             c->ctx->notify(msg);
         }
     }
@@ -406,7 +405,7 @@ flush_message_queue(struct conn *c)
         msg->hinfo.err = QNIOERROR_HUP;
         if (msg->hinfo.flags & QNIO_FLAG_SYNC_REQ) {
             ck_pr_store_int(&msg->resp_ready, 1);
-        } else if(c->ctx->notify) {
+        } else if (c->ctx->notify) {
             c->ctx->notify(msg);
         }
     }
@@ -415,10 +414,10 @@ flush_message_queue(struct conn *c)
 static void *
 client_epoll(void *args)
 {
-    struct endpoint   *e;
     struct qnio_client_epoll_unit *eu = (struct qnio_client_epoll_unit *) args;
-    int                n, i;
-    struct epoll_event ep_event;
+    struct epoll_event      ep_event;
+    struct endpoint         *e;
+    int                     n, i;
 
     nioDbg("Starting client epoll loop");
     /* The event loop */
@@ -779,6 +778,7 @@ qnc_driver_init(qnio_notify client_notify)
 
     qnc_ctx = (struct qnio_client_ctx *)malloc(sizeof (struct qnio_client_ctx));
     cmn_ctx = (struct qnio_common_ctx *)malloc(sizeof (struct qnio_common_ctx));
+    qnc_ctx->drv.chdrv_type = IIO_NETWORK_CHANNEL;
     qnc_ctx->drv.chdrv_open = qnc_channel_open;
     qnc_ctx->drv.chdrv_close = qnc_channel_close;
     qnc_ctx->drv.chdrv_msg_resend_cleanup = qnc_message_resend_cleanup;

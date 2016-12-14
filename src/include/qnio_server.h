@@ -1,7 +1,8 @@
 #ifndef QNIO_SERVER_HEADER_DEFINED
 #define QNIO_SERVER_HEADER_DEFINED
 
-#define MAX_EPOLL_UNITS               16 
+#define MAX_EPOLL_UNITS             16 
+#define QNIO_DEFAULT_PORT           "9999"
 
 /*
  * An epoll unit to allow for scaling on server.
@@ -18,6 +19,7 @@ struct qnio_epoll_unit
     pthread_t send_epoll;
     pthread_t recv_epoll;
 };
+
 struct qnio_server_ctx {
     char *node;
     char *port;
@@ -29,9 +31,8 @@ struct qnio_server_ctx {
     struct qnio_epoll_unit eu[MAX_EPOLL_UNITS];
 };
 
-qnio_error_t qnio_server_init(qnio_notify server_notify);
-qnio_error_t qnio_server_start(char *node, char *port);
-qnio_error_t qnio_send_resp(struct qnio_msg *msg);
-void ns_message_free(struct qnio_msg *msg);
+qnio_error_t qns_server_init(qnio_notify server_notify);
+qnio_error_t qns_server_start(char *node, char *port);
+qnio_error_t qns_send_resp(struct qnio_msg *msg);
 
 #endif /* QNIO_SERVER_HEADER_DEFINED */

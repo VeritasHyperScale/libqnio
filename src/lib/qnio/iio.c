@@ -11,26 +11,6 @@
 #include "defs.h"
 #include "iio.h"
 
-static void
-iio_message_clear(struct qnio_msg *msg)
-{
-    msg->hinfo = (const struct qnio_header){ 0 };
-    msg->buf_source = 0;
-    msg->resp_ready = 0;
-    msg->ctx = NULL;
-    memset(msg->header, 0, HEADER_LEN);
-    msg->msg_pool = NULL;
-    msg->io_pool = NULL;
-    msg->user_ctx = 0;
-    msg->lnode = (const struct list_head) { 0 };
-    msg->send = NULL;
-    msg->recv = NULL;
-    msg->io_buf = NULL;
-    msg->io_blob = NULL;
-    msg->reserved = NULL;
-    return;
-}
-
 void
 iio_free_io_pool_buf(struct qnio_msg *msg)
 {
@@ -58,7 +38,7 @@ iio_message_alloc(slab_t *msg_pool)
     struct qnio_msg *msg;
 
     msg = (struct qnio_msg *) slab_get(msg_pool);
-    iio_message_clear(msg);
+    memset(msg, 0, sizeof (struct qnio_msg));
     msg->msg_pool = msg_pool;
     return msg;
 }

@@ -18,7 +18,7 @@
 
 int verbose = 0;
 int parallel = 0;
-char *hostname = "hulk";
+char *hostname = "127.0.0.1";
 char *vdisk_dir = "/tmp";
 FILE *backing_file;
 
@@ -177,7 +177,7 @@ void *pdispatch(void *data)
         msg->hinfo.flags = QNIO_FLAG_RESP;
         msg->hinfo.io_flags = QNIO_FLAG_RESP;
     }
-    qnio_send_resp(msg);
+    qns_send_resp(msg);
     return NULL;
 }
 
@@ -271,13 +271,13 @@ int main(int argc, char **argv)
         exit(-1);
     }
 
-    if (qnio_server_init(server_callback) != 0) {
+    if (qns_server_init(server_callback) != 0) {
         fprintf(stderr, "Server init failed\n");
         exit(-1);
     }
     printf("Server initialized\n");
     
-    if(qnio_server_start(hostname, QNIO_DEFAULT_PORT) != 0) {
+    if(qns_server_start(hostname, QNIO_DEFAULT_PORT) != 0) {
         fprintf(stderr, "Server start failed\n");
         exit(-1);
     }

@@ -6,6 +6,15 @@
 #define IIO_HEADER_DEFINED
 
 /*
+ * Error values returned by library.
+ */
+#define QNIO_ERR_SUCCESS               0
+#define QNIO_ERR_CHAN_EXISTS           1
+#define QNIO_ERR_CHAN_CREATE_FAILED    2
+
+#define MSG_POOL_SIZE               4096 
+
+/*
  *  Opcode for driver well defined interfaces. Well defined
  *  interface use 0x1FFF to 0xFFFF, only last four bit can change.
  *  We will use OPCODE_SHIFT to fetch last four bit and use that
@@ -13,36 +22,36 @@
  */
 #define IOR_READ_REQUEST            0x1FFF
 #define IOR_WRITE_REQUEST           0x2FFF
-
-#define IOR_SOURCE_TAG_APPIO     0x00000100 /* Tag specific to APP-I/O (QEMU) */
-
-#define QNIO_FLAG_REQ                  1
-#define QNIO_FLAG_RESP                 2
-#define QNIO_FLAG_ACK                  4
-#define QNIO_FLAG_REQ_NEED_ACK         8
-#define QNIO_FLAG_REQ_NEED_RESP        16
-#define QNIO_FLAG_SYNC_REQ             32
-#define QNIO_FLAG_SYNC_RESP            64
-#define QNIO_FLAG_NOCONN               128
-
-#define QNIO_DEFAULT_PORT              "9999"
-
-#define QNIO_ERR_SUCCESS               0
-#define QNIO_ERR_CHAN_EXISTS           1
-#define QNIO_ERR_CHAN_CREATE_FAILED    2
+#define IOR_SOURCE_TAG_APPIO        0x0100 /* Tag specific to APP-I/O (QEMU) */
 
 #define HEADER_LEN                    256 
 
+/*
+ * QNIO header flags.
+ */
+#define QNIO_FLAG_REQ                  0x0001
+#define QNIO_FLAG_RESP                 0x0002
+#define QNIO_FLAG_ACK                  0x0004
+#define QNIO_FLAG_REQ_NEED_ACK         0x0008
+#define QNIO_FLAG_REQ_NEED_RESP        0x0010
+#define QNIO_FLAG_SYNC_REQ             0x0020
+#define QNIO_FLAG_SYNC_RESP            0x0040
+#define QNIO_FLAG_NOCONN               0x0080
+
+/*
+ * QNIO header data type.
+ */
 #define DATA_TYPE_RAW                 1
 #define DATA_TYPE_PS                  2
 #define DATA_TYPE_RAW_SS              3
 
+/*
+ * QNIO message buffer source.
+ */
 #define BUF_SRC_NONE                0
 #define BUF_SRC_POOL                1
 #define BUF_SRC_USER                2
 #define BUF_SRC_MALLOC              3
-
-#define MSG_POOL_SIZE               4096
 
 struct qnio_header
 {
@@ -63,7 +72,6 @@ struct qnio_header
     char target[NAME_SZ64];
 };
 
-#define HEADER_LEN      256
 struct qnio_msg
 {
     struct qnio_header hinfo; /* header should be the first field */
@@ -97,7 +105,7 @@ enum channel_type {
 
 typedef void (*qnio_notify) (struct qnio_msg *msg);
 struct channel_driver {
-    enum channel_type type;
+    enum channel_type chdrv_type;
     struct channel *(*chdrv_open)(void *channel_arg);
     void (*chdrv_close)(struct channel *channel);
     void (*chdrv_msg_resend_cleanup)(struct qnio_msg *);
