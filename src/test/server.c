@@ -9,25 +9,16 @@
  */
 
 #include <pthread.h>
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <string.h>
 #include <libgen.h>
-#include <linux/unistd.h>
-#include <sys/uio.h>
+#include "defs.h"
 #include "qnio.h"
-#include "datastruct.h"
-#include <fcntl.h>
-#include <signal.h>
-#include "qnio_api.h"
+#include "qnio_server.h"
 
 #define VDISK_SIZE_BYTES    "vdisk_size_bytes"
 
 int verbose = 0;
 int parallel = 0;
-char *hostname = "127.0.0.1";
+char *hostname = "hulk";
 char *vdisk_dir = "/tmp";
 FILE *backing_file;
 
@@ -187,7 +178,6 @@ void *pdispatch(void *data)
         msg->hinfo.io_flags = QNIO_FLAG_RESP;
     }
     qnio_send_resp(msg);
-    qnio_free_msg(msg);
     return NULL;
 }
 

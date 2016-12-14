@@ -14,7 +14,6 @@
 #include <assert.h>
 #include <stddef.h>
 #include "types.h"
-#include "qnio.h"
 
 #define IO_IOV_MAX                  1024+1
 

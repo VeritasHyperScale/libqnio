@@ -9,6 +9,7 @@
  */
 
 #include "defs.h"
+#include "qnio.h"
 
 static int
 read_socket(struct endpoint *endpoint, void *buf, size_t len)

@@ -11,159 +11,160 @@
 #ifndef QNIO_HEADER_DEFINED
 #define QNIO_HEADER_DEFINED    1
 
-#include <sys/uio.h>
-#include "types.h"
-#include "datastruct.h"
-#include "io_iov.h"
-#include "list.h"
-
-#define QNIO_FLAG_REQ                  1
-#define QNIO_FLAG_RESP                 2
-#define QNIO_FLAG_ACK                  4
-#define QNIO_FLAG_REQ_NEED_ACK         8
-#define QNIO_FLAG_REQ_NEED_RESP        16
-#define QNIO_FLAG_SYNC_REQ             32
-#define QNIO_FLAG_SYNC_RESP            64
-#define QNIO_FLAG_NOCONN               128
-
-#define QNIO_DEFAULT_PORT              "9999"
-#define IO_BUF_SIZE                   4603904 /* 4.4MB */
-#define IIO_IO_BUF_SIZE               4194304 /* 4.0MB */
-
-#define QNIO_ERR_SUCCESS               0
-#define QNIO_ERR_CHAN_EXISTS           1
-#define QNIO_ERR_CHAN_CREATE_FAILED    2
-
-#define HEADER_LEN                    256 
-
-#define DATA_TYPE_RAW                 1
-#define DATA_TYPE_PS                  2
-#define DATA_TYPE_RAW_SS              3
-
-#define MAX_EPOLL_UNITS               16 
-#define MAX_CLIENT_EPOLL_UNITS        8 
+#include "defs.h"
+#include "qnio_api.h"
+#include "iio.h"
 
 #ifdef DEBUG
 #define QNIO_HOUSEKEEPING
 #endif
 
-struct qnio_msg;
-struct qnio_ctx;
+#define MAXFDS                      256
+#define EPOLL_WAIT_TIMEOUT          -1
+#define MAX_DRV_NAME_LEN            NAME_SZ64
+#define REQ_MARKER                  0x5CA1AB1E
+#define REQ_ERROR                   0xB000B000
+#define IO_QUEUE_DEPTH              16
+#define IO_POOL_SIZE                4096
+#define IO_POOL_BUF_SIZE            65536 
+#define BILLION                     1E9
+#define BUF_ALIGN                   4096
+#define DUMMY_FD                    -999
 
-typedef void (*qnio_notify) (struct qnio_msg *msg);
+#define CONN_FLAG_REGULAR           1
+#define CONN_FLAG_STREAM            2
+#define CONN_FLAG_STREAM_CLOSE      4
+#define CONN_FLAG_DISCONNECTED      8
+#define CONN_FLAG_INPROGRESS        16 
+
+#define QNIO_SYSCALL(expression)                   \
+    ({ long int __result;                         \
+       do { __result = (long int)(expression); }  \
+       while (__result == -1L && (errno == EAGAIN || errno == EINTR)); \
+       __result; })
+
+#define ERRNO                       errno
+#define CRC_MODULO                  256
+
+enum qnio_mode {
+    QNIO_SERVER_MODE,
+    QNIO_CLIENT_MODE
+};
+
+struct qnio_common_ctx {
+    enum qnio_mode mode;
+    uint64_t in, out; /* IN/OUT traffic counters */
+    qnio_notify notify;
+};
+
+enum NSReadState { /* Network stream read state */
+    NSRS_READ_START,
+    NSRS_READ_HEADER,
+    NSRS_PROCESS_HEADER,
+    NSRS_READ_DATA,
+    NSRS_PROCESS_DATA
+};
+
+enum NSWriteState { /* Network stream write state */
+    NSWS_WRITE_START,
+    NSWS_WRITE_DATA
+};
+
+struct NSReadInfo { /* Network stream read info */
+    enum NSReadState state;
+    qnio_byte_t headerb[HEADER_LEN];
+    struct qnio_header hinfo;
+    struct io_iov iovec;
+    qnio_byte_t *buf;
+    int buf_source;
+};
+
+struct NSWriteInfo { /* Network stream write info */
+    enum NSWriteState state;
+    struct io_iov iovec;
+};
+
+struct endpoint;
 
 /*
- * An epoll unit to allow for scaling on either the client or server.
- * Threads on server/client can service an epoll unit. 
- * Connections will be assigned to epoll units.
- * Max number of epoll units will determine the number of threads used.
+ *  IO class descriptor (file, socket, etc)
+ *  These classes are defined in io_*.c files.
  */
-struct qnio_epoll_unit
+struct io_class
 {
-    struct epoll_event *send_activefds; /* Send Epoll active fd set     */
-    struct epoll_event *recv_activefds; /* Recv Epoll active fd set     */
-    int send_epoll_fd;  /* Send Epoll fd                */
-    int recv_epoll_fd;  /* Recv Epoll fd                */
-    pthread_t send_epoll;
-    pthread_t recv_epoll;
-    struct qnio_ctx *ctx;
+    const char *name;
+    int         (*read)(struct endpoint *, void *buf, size_t len);
+    int         (*write)(struct endpoint *, const void *buf, size_t len);
+    void        (*close)(struct endpoint *);
+    int         (*readv)(struct endpoint *, struct iovec *vec, int count);
+    int         (*writev)(struct endpoint *, struct iovec *vec, int count); 
+    void        (*read_done)(void *);
+    void        (*write_done)(void *);
 };
 
-struct qnio_client_epoll_unit
+extern const struct io_class io_socket;
+extern const struct io_class io_event;
+
+/*
+ * Data exchange endpoint. Represents one end of a connection
+ */
+struct endpoint
 {
-    struct epoll_event *activefds;      
-    struct qnio_ctx *ctx;
-    pthread_t client_epoll;
-    int epoll_fd;
-    int exit_thread;
+    int sock; /* File Descriptor */
+    unsigned int flags;
+    struct conn *conn;
+    const struct io_class *io_class; /* IO class */
 };
 
-struct qnio_ctx
+/*
+ * Endpoint status
+ */
+#define FLAG_R                 0x0001       /* Can read in general  */
+#define FLAG_W                 0x0002       /* Can write in general */
+#define FLAG_CLOSED            0x0004             
+#define FLAG_DONT_CLOSE        0x0008
+#define FLAG_ALWAYS_READY      0x0010       /* Some stream types like
+                                                 * user_func */
+/*
+ * Unified socket address
+ */
+struct usa
 {
-    char *node;
-    char *port;
-    struct epoll_event *activefds; /* Epoll active fd set */
-    clock_t start_time; /* Start time */
-    unsigned long nrequests; /* Requests made */
-    uint64_t in, out; /* IN/OUT traffic counters */
-    int nactive; /* # of connections now */
-    int io_buf_size; /* IO Buffer size */
-    int listen_fd; /* Source fd */
-    int epoll_fd; /* Epoll fd */
-    uint64_t nmsgid;
-    qnio_map *channels;
-    qnio_notify notify;
-    qnio_notify gc;
-    qnio_notify msg_io_done;
-    void *payload_pool;
+    socklen_t len;
+    union
+    {
+        struct sockaddr    sa;
+        struct sockaddr_in sin;
+    } u;
+};
+
+struct conn
+{
+    struct qnio_common_ctx *ctx;
+    struct network_channel *netch;
+    struct usa sa; /* Remote socket address */
+    time_t birth_time; /* Creation time */
+    int flags;
+    int conn_status;
+    int euid;
+    int stream_id; /* Stream ID (generated) in case of long msg */
+    int loc_port; /* Local port */
+    int status; /* Reply status code */
+    time_t expire_time; /* Expiration time */
+    struct endpoint ns; /* Network stream */
+    struct endpoint ev; /* Event Stream, for wake-up calls */
+    struct NSReadInfo rinfo; /* State of network read */
+    struct NSWriteInfo winfo; /* State of network write */
+    safe_fifo_t fifo_q; /* List of pending messages */
+    list_t msgs; /* List of messages with pending ack or response */
     slab_t msg_pool;
-    struct qnio_epoll_unit eu[MAX_EPOLL_UNITS];
-    struct qnio_client_epoll_unit ceu[MAX_EPOLL_UNITS+1];
-    void *apictx;
+    slab_t io_buf_pool;
+    pthread_mutex_t msg_lock;
 };
 
-struct qnio_header
-{
-    uint64_t payload_size;
-    int data_type;
-    qnio_error_t err;
-    uint64_t cookie;
-    unsigned char crc;
-    uint16_t opcode;
-    uint64_t io_offset;
-    uint64_t io_size;
-    uint64_t io_nbytes;
-    uint64_t io_seqno;
-    uint64_t io_flags;
-    uint64_t flags;
-    uint64_t io_remote_hdl;
-    uint32_t io_remote_flags;
-    char target[NAME_SZ64];
-};
+void process_outgoing_messages(struct conn *conn);
+void process_incoming_messages(struct conn *conn);
+void reset_read_state(struct NSReadInfo *rinfo);
+void reset_write_state(struct NSWriteInfo *winfo);
 
-struct qnio_msg
-{
-    struct qnio_header hinfo; /* header should be the first field */
-    int buf_source;
-    int resp_ready;
-    char *channel;
-    void *ctx; /* pointer to struct conn */
-    qnio_byte_t header[HEADER_LEN];
-    void *msg_pool; /* pointer to msg pool */
-    void *io_pool; /* pointer to io pool */
-    qnio_byte_t *io_buf;
-    int rfd; /* remote file descriptor for this message */
-    void *user_ctx; /* pointer to client context */
-    list_t lnode; /* list of messages with pending ACK */
-    io_vector *send;
-    io_vector *recv;
-    qnio_notify msg_io_done;
-    void *io_blob;
-    void *reserved;
-};
-
-
-struct qnio_ctx * qnio_client_init(qnio_notify client_notify);
-void qnio_client_fini(struct qnio_ctx *);
-qnio_error_t qnio_create_channel(struct qnio_ctx *ctx, char *channel, char *port);
-qnio_error_t qnio_send(struct qnio_ctx *ctx, struct qnio_msg *msg);
-qnio_error_t qnio_send_recv(struct qnio_ctx *ctx, struct qnio_msg *msg);
-int qnio_stream_open(struct qnio_ctx *ctx, char *channel);
-qnio_error_t qnio_stream_send(struct qnio_ctx *ctx, int stream, struct qnio_msg *msg);
-qnio_error_t qnio_stream_close(struct qnio_ctx *ctx, char *channel, int stream);
-qnio_error_t qnio_destroy_channel(struct qnio_ctx *ctx, char *chnl_name);
-qnio_error_t qnio_set_client_gc_callback(struct qnio_ctx *ctx, qnio_notify callback);
-qnio_error_t qnio_set_client_msg_io_done_callback(struct qnio_ctx *ctx, qnio_notify callback);
-
-/* Server side interfaces */
-qnio_error_t qnio_server_init(qnio_notify server_notify);
-qnio_error_t qnio_set_server_gc_callback(qnio_notify callback);
-qnio_error_t qnio_set_server_msg_io_done_callback(qnio_notify callback);
-qnio_error_t qnio_server_start(char *node, char *port);
-qnio_error_t qnio_send_resp(struct qnio_msg *msg);
-
-struct qnio_msg *qnio_alloc_msg(struct qnio_ctx *ctx);
-qnio_error_t qnio_free_msg(struct qnio_msg *msg);
-qnio_error_t qnio_free_io_pool_buf(struct qnio_msg *msg);
-
-#endif
+#endif /* QNIO_HEADER_DEFINED */
