@@ -19,7 +19,9 @@
 
 #define QNIO_QEMU_VDISK_SIZE_STR    "vdisk_size_bytes"
 #define IP_ADDR_LEN                 20
-#define SEND_RECV_SLEEP             200
+#define SEND_RECV_SLEEP             200 /* micro seconds */
+#define FAILOVER_RETRY_WAIT         500000 /* micro seconds */
+#define FAILOVER_TIMEOUT            60 /* seconds */
 
 static void client_callback(struct qnio_msg *msg);
 
@@ -103,7 +105,10 @@ iio_device_failover_thread(void *args)
     struct channel *new_channel;
     struct qnio_msg *msg;
     const char *uri;
+    time_t start_t, end_t;
+    double diff_t;
 
+    time(&start_t);
     nioDbg("Starting failover on device %s", device->devid);
 
 retry:
@@ -120,6 +125,13 @@ retry:
      */
     new_channel = iio_channel_open(uri);
     if (new_channel == NULL) {
+        time(&end_t);
+        diff_t = difftime(end_t, start_t);
+        if (diff_t > FAILOVER_TIMEOUT) {
+            nioDbg("Failover timedout");
+            goto err;
+        }
+        usleep(FAILOVER_RETRY_WAIT);
         goto retry;
     }
 
@@ -277,6 +289,7 @@ iio_msg_submit(struct iio_device *device, struct qnio_msg *msg, uint32_t flags)
            msg, msg->user_ctx, (int)msg->hinfo.opcode);
     ck_spinlock_lock(&device->slock);
     if (device->state == IIO_DEVICE_FAILED) {
+        ck_spinlock_unlock(&device->slock);
         msg->hinfo.err = QNIOERROR_NOCONN;
         errno = ENXIO;
         return -1;
@@ -286,6 +299,7 @@ iio_msg_submit(struct iio_device *device, struct qnio_msg *msg, uint32_t flags)
         device->state == IIO_DEVICE_QUIESCE) {
         device->retry_msg_count ++;
         LIST_ADD(&device->retryq, &msg->lnode);
+        ck_spinlock_unlock(&device->slock);
         return 0;
     }
     ck_spinlock_unlock(&device->slock); 

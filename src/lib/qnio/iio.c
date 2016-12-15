@@ -14,20 +14,22 @@
 void
 iio_free_io_pool_buf(struct qnio_msg *msg)
 {
+    if (msg->io_buf == NULL) {
+        return;
+    }
+
     if(msg->buf_source == BUF_SRC_USER) {
         nioDbg("not freeing user io buffer");
         return;
     }
 
-    if(msg->io_buf != NULL) {
-        nioDbg("Msg buffer is being freed msgid=%ld %p",
-               msg->hinfo.cookie, msg->io_buf);
-        if (msg->buf_source == BUF_SRC_POOL) {
-            slab_put(msg->io_pool, msg->io_buf);
-        } else {
-            /* msg->buf_source == BUF_SRC_MALLOC */
-            free(msg->io_buf);
-        }
+    nioDbg("Msg buffer is being freed msgid=%ld %p",
+           msg->hinfo.cookie, msg->io_buf);
+    if (msg->buf_source == BUF_SRC_POOL) {
+        slab_put(msg->io_pool, msg->io_buf);
+    } else {
+        /* msg->buf_source == BUF_SRC_MALLOC */
+        free(msg->io_buf);
     }
     return;
 }

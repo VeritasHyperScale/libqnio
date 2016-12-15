@@ -623,6 +623,8 @@ send_on_connection(struct qnio_msg *msg, struct conn *c)
     nioDbg("Msg is born on client side msgid=%ld %p",msg->hinfo.cookie, msg);
     if (ck_pr_load_int(&c->flags) & CONN_FLAG_DISCONNECTED) {
         nioDbg("Connection is not usable");
+        msg->hinfo.err = QNIOERROR_HUP;
+        errno = ENXIO;
         return -1;
     }
 
@@ -639,6 +641,7 @@ qnc_channel_open(void *channel_arg)
 {
     struct network_channel_arg *nc_arg;
     struct network_channel *netch;
+    int ret;
 
     nc_arg = (struct network_channel_arg *)channel_arg;
     if (!qnc_ctx) {
@@ -652,9 +655,20 @@ qnc_channel_open(void *channel_arg)
     }
     netch = qnio_map_find(qnc_ctx->channels, nc_arg->host);
     if (netch) {
-        nioDbg("Channel already exists");
         netch->refcount ++;
         pthread_mutex_unlock(&qnc_ctx->chnl_lock);
+        nioDbg("Channel already exists");
+        if (ck_pr_load_int(&netch->flags) & CHAN_DISCONNECTED) {
+            pthread_mutex_lock(&netch->conn_lock);
+            ret = reconnect_channel(netch);
+            pthread_mutex_unlock(&netch->conn_lock);
+            if(ret != 0) {
+                pthread_mutex_lock(&qnc_ctx->chnl_lock);
+                netch->refcount --;
+                pthread_mutex_unlock(&qnc_ctx->chnl_lock);
+                return NULL;
+            }
+        }
         return &netch->channel;
     }
 
@@ -748,14 +762,6 @@ qnc_message_send(struct channel *channel, struct qnio_msg *msg)
 {
     struct conn *c = NULL;
     struct network_channel *netch;
-
-    if (!msg) {
-        return -1;
-    }
-
-    if (!channel) {
-        return -1;
-    }
 
     /* find appropriate connection in channel */
     netch = (struct network_channel *)channel;

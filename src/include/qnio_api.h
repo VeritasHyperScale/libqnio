@@ -32,9 +32,8 @@
 /*
  * Error values for iio_cb_t callback function.
  */
-#define QNIOERROR_HUP                       901
-#define QNIOERROR_NOCONN                    902
-#define QNIOERROR_CHANNEL_HUP               903
+#define QNIOERROR_HUP                       901 /* Retriable error */
+#define QNIOERROR_NOCONN                    902 /* Non-retriable error */
 
 
 /* Operation Flags */
