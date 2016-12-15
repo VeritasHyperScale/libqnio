@@ -156,6 +156,7 @@ retry:
         ck_spinlock_lock(&device->slock);
     }
     ck_spinlock_unlock(&device->slock);
+    pthread_exit(0);
     return NULL;
 
 err:
@@ -178,6 +179,7 @@ err:
         }
     }
     ck_spinlock_unlock(&device->slock);
+    pthread_exit(0);
     return NULL;    
 }
 
@@ -194,6 +196,8 @@ iio_device_failover(struct iio_device *device)
          * in same thread.
          */
         iio_device_failover_thread(device);
+    } else {
+        pthread_detach(th);
     }
     return;
 }

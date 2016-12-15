@@ -200,7 +200,7 @@ generate_header(struct qnio_msg *msg)
 
     header = msg->header;
     memcpy(header, &mark, sizeof (int));
-    memcpy(&header[4], msg, (HEADER_LEN-4));
+    memcpy(&header[4], &msg->hinfo, sizeof (struct qnio_header));
     return (header);
 }
 

@@ -40,6 +40,7 @@ close_connections(struct network_channel *netch)
             if (conn->ev.io_class != NULL) {
                 conn->ev.io_class->close(&conn->ev); 
             }
+            safe_fifo_free(&conn->fifo_q);
             netch->conn[i] = NULL;
             free(conn);
         }
@@ -785,11 +786,13 @@ qnc_driver_init(qnio_notify client_notify)
     qnc_ctx = (struct qnio_client_ctx *)malloc(sizeof (struct qnio_client_ctx));
     cmn_ctx = (struct qnio_common_ctx *)malloc(sizeof (struct qnio_common_ctx));
     qnc_ctx->drv.chdrv_type = IIO_NETWORK_CHANNEL;
+    qnc_ctx->channels = NULL;
+    qnc_ctx->nchannel = 0;
+    pthread_mutex_init(&qnc_ctx->chnl_lock, NULL);
     qnc_ctx->drv.chdrv_open = qnc_channel_open;
     qnc_ctx->drv.chdrv_close = qnc_channel_close;
     qnc_ctx->drv.chdrv_msg_resend_cleanup = qnc_message_resend_cleanup;
     qnc_ctx->drv.chdrv_msg_send = qnc_message_send;
-    qnc_ctx->channels = NULL;
 
     cmn_ctx->mode = QNIO_CLIENT_MODE;
     cmn_ctx->in = cmn_ctx->out = 0;
