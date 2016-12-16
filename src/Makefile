@@ -1,5 +1,13 @@
 all:
 
+FLAVOR = `uname -a | grep -i ubuntu`
+ifeq ($(FLAVOR), "")
+	LIBRARY = /usr/lib64
+else
+	LIBRARY = /usr/lib/x86_64-linux-gnu
+endif
+
+
 MAKEFILE = Makefile
 SHELL = /bin/sh
 CC    = gcc
@@ -12,7 +20,6 @@ DEBUGFLAGS   = -O0 -D_DEBUG -D_REENTRANT
 RELEASEFLAGS = -03 -D_REENTRANT
 HEADERS      = /usr/include/qnio
 TEST_TARGET_DIR = /usr/local/bin
-LIBRARY      = /usr/lib64
 
 OPTFLAGS     = $(DEBUGFLAGS)
 
