@@ -37,6 +37,19 @@ make_socket_non_blocking(int sfd)
     return (0);
 }
 
+/*
+ * Make sure string is always NULL terminated.
+ */
+char *
+safe_strncpy(char *dest, const char *src, size_t n)
+{
+    char *cp;
+
+    cp = strncpy(dest, src, n);
+    dest[n-1] = '\0';
+    return cp;
+}
+
 int
 compare_key(const void *x, const void *y)
 {

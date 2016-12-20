@@ -452,7 +452,7 @@ iio_open(const char *uri, const char *devid, uint32_t flags)
     device->active_msg_count = 0;
     device->retry_msg_count = 0;
     device->channel = channel;
-    strncpy(device->devid, devid, NAME_SZ);
+    safe_strncpy(device->devid, devid, NAME_SZ64);
     nioDbg("ndevices = %d\n", apictx->ndevices);
     if (apictx->ndevices == 0) {
         iio_start();
@@ -505,7 +505,7 @@ iio_readv(void *dev_handle, void *ctx_out, struct iovec *iov, int iovcnt,
     msg->hinfo.payload_size = 0;
     msg->hinfo.io_flags |= IOR_SOURCE_TAG_APPIO;
     msg->hinfo.flags = QNIO_FLAG_REQ_NEED_RESP;
-    strncpy(msg->hinfo.target, device->devid, NAME_SZ);
+    safe_strncpy(msg->hinfo.target, device->devid, NAME_SZ64);
     msg->user_ctx = ctx_out;
     msg->send = NULL;
     msg->recv = new_io_vector(1, NULL);
@@ -545,7 +545,7 @@ iio_writev(void *dev_handle, void *ctx_out, struct iovec *iov, int iovcnt,
     msg->hinfo.payload_size = size;
     msg->hinfo.io_flags |= IOR_SOURCE_TAG_APPIO;
     msg->hinfo.flags = QNIO_FLAG_REQ_NEED_ACK;
-    strncpy(msg->hinfo.target, device->devid, NAME_SZ);
+    safe_strncpy(msg->hinfo.target, device->devid, NAME_SZ64);
     msg->user_ctx = ctx_out;
     msg->recv = NULL;
     msg->send = new_io_vector(1, NULL);
@@ -636,7 +636,7 @@ iio_ioctl_json(void *dev_handle, uint32_t opcode, char *injson,
     }
     msg->recv = NULL;
     msg->hinfo.payload_size = data.iov_len;
-    strncpy(msg->hinfo.target, device->devid, NAME_SZ);
+    safe_strncpy(msg->hinfo.target, device->devid, NAME_SZ64);
     msg->user_ctx = ctx_out;
     msg->hinfo.flags = QNIO_FLAG_REQ_NEED_RESP;
     err = iio_msg_submit(device, msg, flags);

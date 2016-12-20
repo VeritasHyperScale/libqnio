@@ -38,7 +38,7 @@ struct iio_device
 {
     int refcount;
     enum iio_device_state state;
-    char devid[NAME_SZ];
+    char devid[NAME_SZ64];
     struct channel *channel;
     ck_spinlock_fas_t slock;
     list_t retryq;

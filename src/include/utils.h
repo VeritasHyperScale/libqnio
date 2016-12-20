@@ -13,6 +13,7 @@
 
 void set_close_on_exec(int fd);
 int make_socket_non_blocking(int sfd);
+char *safe_strncpy(char *dest, const char *src, size_t n);
 int compare_key(const void *x, const void *y);
 int compare_int(const void *x, const void *y);
 

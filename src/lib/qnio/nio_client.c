@@ -677,8 +677,8 @@ qnc_channel_open(void *channel_arg)
     memset(netch, 0, sizeof (struct network_channel));
     netch->channel.cd = &qnc_ctx->drv;
     netch->refcount = 1;
-    strncpy(netch->name, nc_arg->host, NAME_SZ64);
-    strncpy(netch->port, nc_arg->port, 8);
+    safe_strncpy(netch->name, nc_arg->host, NAME_SZ64);
+    safe_strncpy(netch->port, nc_arg->port, PORT_SZ);
     netch->free_conn_idx = 0;
     netch->next_stream_idx = CHNL_DEFAULT_CONNECTIONS;
     if (create_connections(netch, CHNL_DEFAULT_CONNECTIONS) != 0) {

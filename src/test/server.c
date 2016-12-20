@@ -12,6 +12,7 @@
 #include <libgen.h>
 #include "defs.h"
 #include "qnio.h"
+#include "utils.h"
 #include "qnio_server.h"
 
 #define VDISK_SIZE_BYTES    "vdisk_size_bytes"
@@ -33,7 +34,7 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
 
     offset = msg->hinfo.io_offset;
     size = msg->hinfo.io_size;
-    strcpy(vdisk_path_temp, msg->hinfo.target);
+    safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
     bname = basename(vdisk_path_temp);
     sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
     backing_file = fopen(vdisk_path, "r");
@@ -75,7 +76,7 @@ static int vdisk_write(struct qnio_msg *msg)
     offset = msg->hinfo.io_offset;
     iov = io_vector_at(msg->send, 0);
 
-    strcpy(vdisk_path_temp, msg->hinfo.target);
+    safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
     bname = basename(vdisk_path_temp);
     sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
     backing_file = fopen(vdisk_path, "r+");
@@ -127,7 +128,7 @@ void *pdispatch(void *data)
     ps = new_ps(0);
     switch (opcode) {
     case IOR_VDISK_STAT:
-        strcpy(vdisk_path_temp, msg->hinfo.target);
+        safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
         bname = basename(vdisk_path_temp);
         sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
         fd = open(vdisk_path, O_RDONLY);

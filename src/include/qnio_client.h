@@ -11,8 +11,8 @@
 #define MAX_CONN                    (MAX_STREAMS + CHNL_DEFAULT_CONNECTIONS)
 
 struct network_channel_arg {
-    char host[NAME_SZ];
-    char port[NAME_SZ];
+    char host[NAME_SZ64];
+    char port[PORT_SZ];
 };
 
 struct qnio_client_epoll_unit
@@ -43,7 +43,7 @@ struct network_channel
 {
     struct channel channel;
     char name[NAME_SZ64];
-    char port[8];
+    char port[PORT_SZ];
     struct conn *conn[MAX_CONN];
     uint64_t free_conn_idx;
     int refcount;
