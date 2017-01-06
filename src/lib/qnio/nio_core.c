@@ -9,132 +9,26 @@
  */
 
 #include <pthread.h>
-#include <sys/param.h>
-#include "qnio.h"
 #include "defs.h"
+#include "qnio.h"
 
-qnio_error_t
-qnio_free_io_pool_buf(struct qnio_msg *msg)
+static int
+is_resp_required(struct qnio_msg *msg)
 {
-    if(msg->buf_source == BUF_SRC_USER) {
-        nioDbg("not freeing user io buffer");
-        return QNIOERROR_SUCCESS;
-    }
-
-    if(msg->io_buf != NULL) {
-        nioDbg("Msg buffer is being freed msgid=%ld %p",
-               msg->hinfo.cookie, msg->io_buf);
-        if (msg->buf_source == BUF_SRC_POOL) {
-            slab_put(msg->io_pool, msg->io_buf);
-        } else {
-            /* msg->buf_source == BUF_SRC_MALLOC */
-            free(msg->io_buf);
-        }
-    }
-    return QNIOERROR_SUCCESS;
-}
-
-/*
- * Called when channel gets disconnected.
- * Set error state and call notify (io_done) for each
- * message with pending response.
- */
-void
-flush_pending_messages(struct conn *c)
-{
-    struct qnio_msg *msg = NULL;
-    list_t *list, *tmplist;
-
-    nioDbg("Flush all pending messages");
-    LIST_FOREACH_SAFE(&c->msgs, list, tmplist) {
-        msg = LIST_ENTRY(list, struct qnio_msg, lnode);
-        LIST_DEL(&msg->lnode);
-        msg->hinfo.err = QNIOERROR_HUP;
-        if (msg->hinfo.flags & QNIO_FLAG_SYNC_REQ) {
-            ck_pr_store_int(&msg->resp_ready, 1);
-        }
-        else if(c->ctx->notify) {
-            c->ctx->notify(msg);
-        }
-    }
-}
-
-/*
- * Flushes all messages from
- * the send queue corresponding to the given connection.
- * Calls notify (io_done) for each of the messages
- * and removes the message from the map.
- */
-void
-flush_message_queue(struct conn *c)
-{
-    struct qnio_msg          *msg = NULL;
-
-    nioDbg("Flush all pending messages from queue");
-    while(safe_fifo_size(&c->fifo_q) > 0) {
-        msg = (struct qnio_msg *) safe_fifo_dequeue(&c->fifo_q);
-        if(msg == NULL) {
-            break;
-        }
-        msg->hinfo.err = QNIOERROR_HUP;
-        if (msg->hinfo.flags & QNIO_FLAG_SYNC_REQ) {
-            ck_pr_store_int(&msg->resp_ready, 1);
-        } else if(c->ctx->notify) {
-            c->ctx->notify(msg);
-        }
-    }
-}
-
-void
-mark_pending_noconn(struct conn *c)
-{
-    struct qnio_msg *msg = NULL;
-    list_t *list, *tmplist;
-
-    nioDbg("Mark pending messages as QNIO_FLAG_NOCONN");
-    pthread_mutex_lock(&c->msg_lock);
-    LIST_FOREACH_SAFE(&c->msgs, list, tmplist) {
-        msg = LIST_ENTRY(list, struct qnio_msg, lnode);
-        ck_pr_or_64(&msg->hinfo.flags, QNIO_FLAG_NOCONN);
-    }
-    pthread_mutex_unlock(&c->msg_lock);
-}
-
-void
-disconnect(struct conn *c)
-{
-    if (c == NULL) {
-        return;
-    }
-
-    nioDbg("Disconnecting network conn = [%d]", c->ns.sock);
-    if (c->ns.io_class != NULL) {
-        c->ns.io_class->close(&c->ns);
-    }
-    if (c->ev.io_class != NULL) {
-        c->ev.io_class->close(&c->ev);
-    }
-    nioDbg("Freeing memory resources associated with connection");
-    slab_free(&c->msg_pool);
-    slab_free(&c->io_buf_pool);
-    safe_fifo_free(&c->fifo_q);
-    pthread_mutex_destroy(&c->msg_lock);
-    free(c);
-    return;
+    return ((msg->hinfo.flags & QNIO_FLAG_REQ_NEED_ACK) ||
+            (msg->hinfo.flags & QNIO_FLAG_REQ_NEED_RESP));
 }
 
 void
 reset_read_state(struct NSReadInfo *rinfo)
 {
     rinfo->state = NSRS_READ_START;
-
     rinfo->hinfo.payload_size = 0;
     rinfo->hinfo.cookie = -1;
     rinfo->hinfo.crc = 0;
-
-    io_iov_clear(&rinfo->iovec);
     rinfo->buf = NULL;
     rinfo->buf_source = BUF_SRC_NONE;
+    io_iov_clear(&rinfo->iovec);
 }
 
 void
@@ -147,7 +41,8 @@ reset_write_state(struct NSWriteInfo *winfo)
 /*
  * Process message on server.
  */
-static void process_server_message(struct conn *conn)
+static void 
+process_server_message(struct conn *conn)
 {
     struct NSReadInfo *rinfo;
     struct qnio_msg  *msg;
@@ -156,8 +51,7 @@ static void process_server_message(struct conn *conn)
     rinfo = &conn->rinfo;
     nioDbg("process_server_message: flags = [%ld] and size = [%ld]",
            rinfo->hinfo.flags, rinfo->hinfo.payload_size);
-    msg = (struct qnio_msg *)slab_get(&conn->msg_pool);
-    clear_msg(msg);
+    msg = iio_message_alloc(&conn->msg_pool);
     msg->io_pool = &conn->io_buf_pool;
     memcpy(&msg->hinfo, &rinfo->hinfo, sizeof(struct qnio_header));
     nioDbg("Msg is born on server side msgid=%ld %p buffer pointer %p",
@@ -167,8 +61,8 @@ static void process_server_message(struct conn *conn)
     msg->io_buf = rinfo->buf;
     msg->buf_source = rinfo->buf_source;
     if (msg->hinfo.payload_size > 0) {
-        if(msg->hinfo.data_type == DATA_TYPE_RAW ||
-           msg->hinfo.data_type == DATA_TYPE_PS) {
+        if (msg->hinfo.data_type == DATA_TYPE_RAW ||
+            msg->hinfo.data_type == DATA_TYPE_PS) {
             msg->send = new_io_vector(1, NULL);
             req.iov_base = (void *)msg->io_buf;
             req.iov_len = msg->hinfo.payload_size;
@@ -189,7 +83,8 @@ static void process_server_message(struct conn *conn)
 /*
  * Process message on client.
  */
-static void process_client_message(struct conn *conn)
+static void 
+process_client_message(struct conn *conn)
 {
     struct NSReadInfo *rinfo;
     struct qnio_msg *msg;
@@ -230,7 +125,6 @@ static inline int
 process_header(struct conn *conn)
 {
     struct NSReadInfo *rinfo;
-    struct channel *channel;
     struct qnio_header *hinfo;
     qnio_byte_t *header_buf;
     struct qnio_msg *msg = NULL;
@@ -239,7 +133,6 @@ process_header(struct conn *conn)
     int i;
     int err = QNIOERROR_SUCCESS;
     
-    channel = conn->channel;
     rinfo = &conn->rinfo;
     hinfo = &rinfo->hinfo;
     header_buf = rinfo->headerb;
@@ -255,7 +148,7 @@ process_header(struct conn *conn)
         rinfo->state = NSRS_PROCESS_DATA;
         return err;
     }
-    if (channel->flags & CHAN_CLIENT) {
+    if (conn->ctx->mode == QNIO_CLIENT_MODE) {
         msg = (struct qnio_msg *)hinfo->cookie;
         if (msg->recv != NULL) {
             rinfo->buf_source = BUF_SRC_USER;
@@ -265,7 +158,7 @@ process_header(struct conn *conn)
             posix_memalign((void **)&rinfo->buf, BUF_ALIGN, aligned_size);
             rinfo->buf_source = BUF_SRC_MALLOC;
         }
-    } else if (channel->flags & CHAN_SERVER) {
+    } else if (conn->ctx->mode == QNIO_SERVER_MODE) {
         if (hinfo->payload_size <= IO_POOL_BUF_SIZE) {
             nioDbg("Server side message, assigning pool buffer");
             rinfo->buf = (qnio_byte_t *)slab_get(&conn->io_buf_pool);
@@ -277,7 +170,7 @@ process_header(struct conn *conn)
             rinfo->buf_source = BUF_SRC_MALLOC;
         }
     } else {
-        nioDbg("Invalid cannnel");
+        nioDbg("Invalid Connection");
         return -1;
     }
 
@@ -299,18 +192,16 @@ process_header(struct conn *conn)
     return err;
 }
 
-qnio_byte_t *
+static qnio_byte_t *
 generate_header(struct qnio_msg *msg)
 {
     qnio_byte_t *header;
     int mark = REQ_MARKER;
-    int copy_bytes;
 
     header = msg->header;
-    memcpy(header, &mark, sizeof(int));
-    copy_bytes = MIN(sizeof(struct qnio_header), (HEADER_LEN - 4));
-    memcpy(&header[4], msg, copy_bytes);
-    return header;
+    memcpy(header, &mark, sizeof (int));
+    memcpy(&header[4], &msg->hinfo, sizeof (struct qnio_header));
+    return (header);
 }
 
 static inline void
@@ -333,7 +224,7 @@ write_to_network(struct conn *conn)
         header.iov_base = generate_header(msg);
         header.iov_len = HEADER_LEN;
         io_iov_add(&winfo->iovec, &header);
-        if (conn->channel->flags & CHAN_CLIENT) {
+        if (conn->ctx->mode == QNIO_CLIENT_MODE) {
             iovec = msg->send;
         } else {
             iovec = msg->recv;
@@ -361,28 +252,18 @@ write_to_network(struct conn *conn)
         /* dequeue msg from queue */
         msg = (struct qnio_msg *)safe_fifo_dequeue(&conn->fifo_q);
         nioDbg("Msg is written on wire msgid=%ld", msg->hinfo.cookie);
-        if(conn->ctx->gc != NULL) {
-            conn->ctx->gc(msg);
-        }
-        if(msg->msg_io_done != NULL) {
-            msg->msg_io_done(msg);
-        }
-        if(!is_resp_required(msg)) {
-            if(msg->hinfo.flags & QNIO_FLAG_REQ) {
-                 conn->ctx->notify(msg);
+        if (conn->ctx->mode == QNIO_CLIENT_MODE) {
+            if (is_resp_required(msg)) {
+                nioDbg("Msg is pending response msgid=%ld", msg->hinfo.cookie);
+                LIST_ADD(&conn->msgs, &msg->lnode);
             } else {
-                 if(msg->send) {
-                     io_vector_delete(msg->send);
-                 }
-                 if(msg->recv && msg->hinfo.data_type == DATA_TYPE_PS) {
-                     io_vector_delete(msg->recv);
-                 }
-                 qnio_free_io_pool_buf(msg);
-                 slab_put(&conn->msg_pool, msg);
+                conn->ctx->notify(msg);
             }
         } else {
-            nioDbg("Msg is pending response msgid=%ld", msg->hinfo.cookie);
-            LIST_ADD(&conn->msgs, &msg->lnode);
+            /*
+             * conn->ctx->mode == QNIO_SERVER_MODE
+             */
+            iio_message_free(msg);
         }
     } else if (n > 0) {
         io_iov_forword(&winfo->iovec, n);
@@ -422,7 +303,7 @@ read_from_network(struct conn *conn)
         conn->ctx->in += n;
 #endif
     } else if (!(ns->flags & FLAG_DONT_CLOSE)&&
-               !(n == -1 && (ERRNO == EINTR || ERRNO == EWOULDBLOCK))) {
+               !(n == -1 && (errno == EINTR || errno == EWOULDBLOCK))) {
         nioDbg("Stopping endpoint");
         stop_endpoint(ns);
     }
@@ -500,12 +381,12 @@ process_incoming_messages(struct conn *conn)
     }
 
     if (rinfo->state == NSRS_PROCESS_DATA) {
-        if (conn->channel->flags & CHAN_CLIENT) {
+        if (conn->ctx->mode == QNIO_CLIENT_MODE) {
             process_client_message(conn);
-        } else if (conn->channel->flags & CHAN_SERVER) {
+        } else if (conn->ctx->mode == QNIO_SERVER_MODE) {
             process_server_message(conn);
         } else {
-            nioDbg("Invalid cannnel");
+            nioDbg("Invalid connection");
         }
         reset_read_state(rinfo);
     }

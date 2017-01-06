@@ -8,10 +8,95 @@
  * GNU GPL, version 2 or (at your option) any later version.
  */
 
-#include "qnio.h"
 #include "defs.h"
+#include "qnio.h"
+#include "qnio_server.h"
+#include "utils.h"
 
-static struct qnio_ctx *s_ctx;
+static struct qnio_server_ctx *qns_ctx;
+static struct qnio_common_ctx *cmn_ctx;
+
+static void
+disconnect(struct conn *c)
+{
+    if (c == NULL) {
+        return;
+    }
+
+    nioDbg("Disconnecting network conn = [%d]", c->ns.sock);
+    if (c->ns.io_class != NULL) {
+        c->ns.io_class->close(&c->ns);
+    }
+    if (c->ev.io_class != NULL) {
+        c->ev.io_class->close(&c->ev);
+    }
+    nioDbg("Freeing memory resources associated with connection");
+    slab_free(&c->msg_pool);
+    slab_free(&c->io_buf_pool);
+    safe_fifo_free(&c->fifo_q);
+    pthread_mutex_destroy(&c->msg_lock);
+    free(c);
+    return;
+}
+
+static void
+mark_pending_noconn(struct conn *c)
+{
+    struct qnio_msg *msg = NULL;
+    list_t *list, *tmplist;
+
+    nioDbg("Mark pending messages as QNIO_FLAG_NOCONN");
+    pthread_mutex_lock(&c->msg_lock);
+    LIST_FOREACH_SAFE(&c->msgs, list, tmplist) {
+        msg = LIST_ENTRY(list, struct qnio_msg, lnode);
+        ck_pr_or_64(&msg->hinfo.flags, QNIO_FLAG_NOCONN);
+    }
+    pthread_mutex_unlock(&c->msg_lock);
+}
+
+static int
+create_and_bind(char *node, char *port)
+{
+    struct addrinfo  hints;
+    struct addrinfo *result, *rp;
+    int s, sfd;
+    int soreuse=1;
+
+    memset(&hints, 0, sizeof (struct addrinfo));
+    hints.ai_family = AF_UNSPEC;     /* Return IPv4 and IPv6 choices */
+    hints.ai_socktype = SOCK_STREAM; /* We want a TCP socket */
+    hints.ai_flags = AI_PASSIVE;     /* All interfaces */
+
+    s = getaddrinfo(node, port, &hints, &result);
+    if (s != 0)
+    {
+        nioDbg("getaddrinfo: %s", gai_strerror(s));
+        return (-1);
+    }
+    for (rp = result; rp != NULL; rp = rp->ai_next)
+    {
+        sfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (sfd == -1)
+        {
+            continue;
+        }
+        setsockopt(sfd,SOL_SOCKET,SO_REUSEADDR, &soreuse, sizeof(soreuse));
+        s = bind(sfd, rp->ai_addr, rp->ai_addrlen);
+        if (s == 0)
+        {
+            /* We managed to bind successfully! */
+            break;
+        }
+        close(sfd);
+    }
+    if (rp == NULL)
+    {
+        nioDbg("Could not bind %d", errno);
+        return (-1);
+    }
+    freeaddrinfo(result);
+    return (sfd);
+}
 
 static struct endpoint *
 add_socket(int sock, struct qnio_epoll_unit *eu)
@@ -20,7 +105,6 @@ add_socket(int sock, struct qnio_epoll_unit *eu)
     struct usa sa;
     struct epoll_event ep_event;
     int epoll_err;
-    struct channel *channel = NULL;
 
     sa.len = sizeof (sa.u.sin);
     if (getpeername(sock, &sa.u.sa, &sa.len)) {
@@ -30,9 +114,9 @@ add_socket(int sock, struct qnio_epoll_unit *eu)
         c = (struct conn *)malloc(sizeof (struct conn));
         memset(c, 0, sizeof (struct conn));
 
-        s_ctx->nrequests++;
+        qns_ctx->nrequests++;
         c->ns.conn = c->ev.conn = c;
-        c->ctx = s_ctx;
+        c->ctx = cmn_ctx;
         c->sa = sa;
 
         (void)getsockname(sock, &sa.u.sa, &sa.len);
@@ -63,14 +147,6 @@ add_socket(int sock, struct qnio_epoll_unit *eu)
         reset_read_state(&c->rinfo);
         reset_write_state(&c->winfo);
 
-        /* get channel */
-        channel = qnio_map_find(s_ctx->channels, DUMMY_CHANNEL);
-        if (!channel) {
-            nioDbg("Default dummy channel for server not found");
-            free(c);
-            return (NULL);
-        }
-        c->channel = channel;
         slab_init(&c->msg_pool, MSG_POOL_SIZE/MAX_EPOLL_UNITS,
                   sizeof(struct qnio_msg), 0, NULL);
         slab_init(&c->io_buf_pool, IO_POOL_SIZE/MAX_EPOLL_UNITS,
@@ -82,85 +158,46 @@ add_socket(int sock, struct qnio_epoll_unit *eu)
 }
 
 qnio_error_t
-qnio_set_server_gc_callback(qnio_notify callback)
-{
-    if(s_ctx) {
-        s_ctx->gc = callback;
-    }
-    return QNIOERROR_SUCCESS;
-}
-
-qnio_error_t
-qnio_set_server_msg_io_done_callback(qnio_notify callback)
-{
-    if(s_ctx) {
-        s_ctx->msg_io_done = callback;
-    }
-    return QNIOERROR_SUCCESS;
-}
-
-qnio_error_t
-qnio_server_init(qnio_notify server_notify)
+qns_server_init(qnio_notify server_notify)
 {
     qnio_error_t err = QNIOERROR_SUCCESS;
-    struct channel *channel = NULL;
     int i;
 
     nioDbg("Starting server init");
-    s_ctx = (struct qnio_ctx *)malloc(sizeof (struct qnio_ctx));
-    s_ctx->io_buf_size = IO_BUF_SIZE;
-    s_ctx->channels = new_qnio_map(compare_key, NULL, NULL);
+    cmn_ctx = (struct qnio_common_ctx *)malloc(sizeof (struct qnio_common_ctx));
+    cmn_ctx->mode = QNIO_SERVER_MODE;
+    cmn_ctx->notify = server_notify;
+    cmn_ctx->in = cmn_ctx->out = 0;
 
-    /*
-     * Dummy channel for server side.
-     * Reason for adding a channel on server side
-     * although it doesn't need one is that the msg map
-     * can now be maintained per channel and can now be cleaned up
-     * when a channel goes bad.
-     * This helps keep the client/server code symetric.
-     */
-    channel = (struct channel *)malloc(sizeof (struct channel));
-    channel->ctx = s_ctx;
-    channel->flags = CHAN_SERVER;
-    strncpy(channel->name, DUMMY_CHANNEL, strlen(DUMMY_CHANNEL) + 1);
-    qnio_map_insert(s_ctx->channels, channel->name,
-                  (struct channel *)channel);
-
-    s_ctx->notify = server_notify;
-    s_ctx->gc = NULL;
-    s_ctx->msg_io_done = NULL;
-    s_ctx->nmsgid = 1;
-    s_ctx->in = s_ctx->out = 0;
-
+    qns_ctx = (struct qnio_server_ctx *)malloc(sizeof (struct qnio_server_ctx));
     /* Buffer where events are returned */
-    s_ctx->activefds = calloc(MAXFDS, sizeof (struct epoll_event));
-    s_ctx->epoll_fd = epoll_create1(0);
-    if (s_ctx->epoll_fd == -1) {
+    qns_ctx->activefds = calloc(MAXFDS, sizeof (struct epoll_event));
+    qns_ctx->epoll_fd = epoll_create1(0);
+    if (qns_ctx->epoll_fd == -1) {
         nioDbg("epoll_create error");
         err = -1;
     }
 
     for(i=0;i<MAX_EPOLL_UNITS;i++) {
-        s_ctx->eu[i].send_activefds = calloc(MAXFDS, sizeof (struct epoll_event));
-        s_ctx->eu[i].recv_activefds = calloc(MAXFDS, sizeof (struct epoll_event));
+        qns_ctx->eu[i].send_activefds = calloc(MAXFDS, sizeof (struct epoll_event));
+        qns_ctx->eu[i].recv_activefds = calloc(MAXFDS, sizeof (struct epoll_event));
 
-        s_ctx->eu[i].send_epoll_fd = epoll_create1(0);
-        if (s_ctx->eu[i].send_epoll_fd == -1) {
+        qns_ctx->eu[i].send_epoll_fd = epoll_create1(0);
+        if (qns_ctx->eu[i].send_epoll_fd == -1) {
             nioDbg("epoll_create error");
             err = -1;
         }
 
-        s_ctx->eu[i].recv_epoll_fd = epoll_create1(0);
-        if (s_ctx->eu[i].recv_epoll_fd == -1) {
+        qns_ctx->eu[i].recv_epoll_fd = epoll_create1(0);
+        if (qns_ctx->eu[i].recv_epoll_fd == -1) {
             nioDbg("epoll_create error");
             err = -1;
         }
-        s_ctx->eu[i].ctx = s_ctx;
     }
     return (err);
 }
 
-void *
+static void *
 server_send_epoll(void *args)
 {
     struct endpoint *e;
@@ -203,7 +240,7 @@ server_send_epoll(void *args)
     return (NULL);
 }
 
-void *
+static void *
 server_recv_epoll(void *args)
 {
     struct endpoint *e;
@@ -264,7 +301,7 @@ server_recv_epoll(void *args)
     return (NULL);
 }
 
-int
+static int
 spawn_server_epoll(struct qnio_epoll_unit *eu)
 {
     int retval = 0;
@@ -284,27 +321,27 @@ spawn_server_epoll(struct qnio_epoll_unit *eu)
 }
 
 qnio_error_t
-qnio_server_start(char *node, char *port)
+qns_server_start(char *node, char *port)
 {
-    qnio_error_t         err = QNIOERROR_SUCCESS;
-    int                sfd, s, n, i;
-    struct epoll_event event;
-    struct qnio_epoll_unit *eu = NULL;
-    int                eu_counter = 0;
+    qnio_error_t            err = QNIOERROR_SUCCESS;
+    struct epoll_event      event;
+    struct qnio_epoll_unit  *eu = NULL;
+    int                     sfd, s, n, i;
+    int                     eu_counter = 0;
 
     nioDbg("Entering qnio_epoll");
-    s_ctx->node = node;
+    qns_ctx->node = node;
     if(port) {
-        s_ctx->port = port;
+        qns_ctx->port = port;
     } else {
-        s_ctx->port = QNIO_DEFAULT_PORT;
+        qns_ctx->port = QNIO_DEFAULT_PORT;
     }
 
-    sfd = create_and_bind(s_ctx->node, s_ctx->port);
+    sfd = create_and_bind(qns_ctx->node, qns_ctx->port);
     if (sfd == -1) {
         return (-1);
     }
-    s_ctx->listen_fd = sfd;
+    qns_ctx->listen_fd = sfd;
 
     s = make_socket_non_blocking(sfd);
     if (s == -1) {
@@ -317,7 +354,7 @@ qnio_server_start(char *node, char *port)
     }
     event.data.fd = sfd;
     event.events = EPOLLIN;
-    s = epoll_ctl(s_ctx->epoll_fd, EPOLL_CTL_ADD, sfd, &event);
+    s = epoll_ctl(qns_ctx->epoll_fd, EPOLL_CTL_ADD, sfd, &event);
     if (s == -1) {
         nioDbg("epoll_ctl error");
         return (-1);
@@ -325,25 +362,25 @@ qnio_server_start(char *node, char *port)
 
     for(i=0;i<MAX_EPOLL_UNITS;i++) {
         nioDbg("Starting server epoll unit #%d",i);
-        spawn_server_epoll(&s_ctx->eu[i]);
+        spawn_server_epoll(&qns_ctx->eu[i]);
     }
 
     nioDbg("Starting listener epoll loop");
     /* The event loop */
     while (1)
     {
-        n = epoll_wait(s_ctx->epoll_fd, s_ctx->activefds,
+        n = epoll_wait(qns_ctx->epoll_fd, qns_ctx->activefds,
                        MAXFDS, EPOLL_WAIT_TIMEOUT);
 
         for (i = 0; i < n; i++) {
-            if ((s_ctx->activefds[i].events & EPOLLERR) ||
-                (s_ctx->activefds[i].events & EPOLLHUP) ||
-                (!(s_ctx->activefds[i].events & EPOLLIN))) {
+            if ((qns_ctx->activefds[i].events & EPOLLERR) ||
+                (qns_ctx->activefds[i].events & EPOLLHUP) ||
+                (!(qns_ctx->activefds[i].events & EPOLLIN))) {
                 nioDbg("epoll error occured on %d\n",
-                          s_ctx->activefds[i].data.fd);
-                close(s_ctx->activefds[i].data.fd);
+                          qns_ctx->activefds[i].data.fd);
+                close(qns_ctx->activefds[i].data.fd);
                 continue;
-            } else if (sfd == s_ctx->activefds[i].data.fd) {
+            } else if (sfd == qns_ctx->activefds[i].data.fd) {
                 nioDbg("Got a new connection");
                 /* We have a notification on the listening socket, which
                  *  means one or more incoming connections. */
@@ -381,7 +418,7 @@ qnio_server_start(char *node, char *port)
                     if (s == -1) {
                         return (-1);
                     }
-                    eu = &s_ctx->eu[eu_counter];
+                    eu = &qns_ctx->eu[eu_counter];
                     eu_counter++;
                     if(eu_counter == MAX_EPOLL_UNITS)
                         eu_counter = 0;
@@ -390,14 +427,14 @@ qnio_server_start(char *node, char *port)
                     event.events = EPOLLIN | EPOLLRDHUP;
                     event.data.ptr = add_socket(infd, eu);
                     if(event.data.ptr == NULL) {
-                        nioDbg("qnio_server_start: add_socket returned NULL");
+                        nioDbg("qns_server_start: add_socket returned NULL");
                         break;
                     }
 
                     s = epoll_ctl(eu->recv_epoll_fd,
                                   EPOLL_CTL_ADD, infd, &event);
                     if (s == -1) {
-                        nioDbg("qnio_server_start: epoll_ctl error %d",errno);
+                        nioDbg("qns_server_start: epoll_ctl error %d",errno);
                         return (-1);
                     }
                 }
@@ -406,25 +443,25 @@ qnio_server_start(char *node, char *port)
         }
     }
 
-    free(s_ctx->activefds);
+    free(qns_ctx->activefds);
     close(sfd);
     return (err);
 }
 
 qnio_error_t
-qnio_send_resp(struct qnio_msg *msg)
+qns_send_resp(struct qnio_msg *msg)
 {
-    struct conn *c = (struct conn *) msg->ctx;
+    struct conn *c = (struct conn *)msg->ctx;
 
     nioDbg("Msg resp being sent for msgid=%ld", msg->hinfo.cookie);
     if (ck_pr_load_64(&msg->hinfo.flags) & QNIO_FLAG_NOCONN) {
-        nioDbg("Server side connection is disconnected. Aborting qnio_send_resp.");
+        nioDbg("Server side connection is disconnected. Aborting qns_send_resp.");
         return QNIOERROR_NOCONN;
     }
     pthread_mutex_lock(&c->msg_lock);
     LIST_DEL(&msg->lnode);
     pthread_mutex_unlock(&c->msg_lock);
-    if (c == NULL || (ck_pr_load_int(&c->flags) & CONN_FLAG_DISCONNECTED)) {
+    if (ck_pr_load_int(&c->flags) & CONN_FLAG_DISCONNECTED) {
         nioDbg("Server side connection is disconnected. Not enqueuing response.");
         /*
          * Possible if disconnect has been processed for this connection
@@ -432,8 +469,8 @@ qnio_send_resp(struct qnio_msg *msg)
          */
         return QNIOERROR_NOCONN;
     }
-    safe_fifo_enqueue(&c->fifo_q, msg);
 
+    safe_fifo_enqueue(&c->fifo_q, msg);
     nioDbg("Msg resp is enqueued msgid=%ld", msg->hinfo.cookie);
     /* signal connection eventfd */
     c->ev.io_class->write(&c->ev, NULL, 0);

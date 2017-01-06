@@ -8,53 +8,7 @@
  * GNU GPL, version 2 or (at your option) any later version.
  */
 
-#include "qnio.h"
 #include "defs.h"
-
-int
-create_and_bind(char *node, char *port)
-{
-    struct addrinfo  hints;
-    struct addrinfo *result, *rp;
-    int s, sfd;
-    int soreuse=1;
-
-    memset(&hints, 0, sizeof (struct addrinfo));
-    hints.ai_family = AF_UNSPEC;     /* Return IPv4 and IPv6 choices */
-    hints.ai_socktype = SOCK_STREAM; /* We want a TCP socket */
-    hints.ai_flags = AI_PASSIVE;     /* All interfaces */
-
-    s = getaddrinfo(node, port, &hints, &result);
-    if (s != 0)
-    {
-        nioDbg("getaddrinfo: %s", gai_strerror(s));
-        return (-1);
-    }
-    for (rp = result; rp != NULL; rp = rp->ai_next)
-    {
-        sfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-        if (sfd == -1)
-        {
-            continue;
-        }
-        setsockopt(sfd,SOL_SOCKET,SO_REUSEADDR, &soreuse, sizeof(soreuse));
-        s = bind(sfd, rp->ai_addr, rp->ai_addrlen);
-        if (s == 0)
-        {
-            /* We managed to bind successfully! */
-            break;
-        }
-        close(sfd);
-    }
-    if (rp == NULL)
-    {
-        nioDbg("Could not bind %d", errno);
-        return (-1);
-    }
-    freeaddrinfo(result);
-
-    return (sfd);
-}
 
 void
 set_close_on_exec(int fd)
@@ -69,20 +23,31 @@ make_socket_non_blocking(int sfd)
     int nodelay = 1;
 
     flags = fcntl(sfd, F_GETFL, 0);
-    if (flags == -1)
-    {
+    if (flags == -1) {
         nioDbg("fcntl error");
         return (-1);
     }
     flags |= O_NONBLOCK;
     s = fcntl(sfd, F_SETFL, flags);
-    if (s == -1)
-    {
+    if (s == -1) {
         nioDbg("fcntl error");
         return (-1);
     }
     setsockopt(sfd, SOL_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
     return (0);
+}
+
+/*
+ * Make sure string is always NULL terminated.
+ */
+char *
+safe_strncpy(char *dest, const char *src, size_t n)
+{
+    char *cp;
+
+    cp = strncpy(dest, src, n);
+    dest[n-1] = '\0';
+    return cp;
 }
 
 int
@@ -95,45 +60,4 @@ int
 compare_int(const void *x, const void *y)
 {
     return ((*(int *)x) - (*(int *)y));
-}
-
-int
-is_resp_required(struct qnio_msg *msg)
-{
-    return ((msg->hinfo.flags & QNIO_FLAG_REQ_NEED_ACK) ||
-            (msg->hinfo.flags & QNIO_FLAG_REQ_NEED_RESP));
-}
-
-void
-clear_msg(struct qnio_msg *msg)
-{
-    msg->hinfo = (const struct qnio_header){ 0 };
-    msg->buf_source = 0;
-    msg->resp_ready = 0;
-    msg->channel = NULL;
-    msg->ctx = NULL;
-    memset(msg->header, 0, HEADER_LEN);
-    msg->msg_pool = NULL;
-    msg->io_pool = NULL;
-    msg->rfd = 0;
-    msg->user_ctx = 0;
-    msg->lnode = (const struct list_head) { 0 };
-    msg->send = NULL;
-    msg->recv = NULL;
-    msg->io_buf = NULL;
-    msg->msg_io_done = NULL;
-    msg->io_blob = NULL;
-    msg->reserved = NULL;
-}
-
-void *
-vec_alloc(void *v)
-{
-    io_vector *vec = new_io_vector(1, NULL);
-
-    io_vector_clear(vec, NULL);
-    vec->_count = 0;
-    vec->_total_size = 0;
-
-    return vec;
 }

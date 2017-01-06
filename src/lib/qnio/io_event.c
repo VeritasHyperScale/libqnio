@@ -11,6 +11,7 @@
 #include <sys/eventfd.h>
 
 #include "defs.h"
+#include "qnio.h"
 
 static int
 read_event(struct endpoint *endpoint, void *buf, size_t len)

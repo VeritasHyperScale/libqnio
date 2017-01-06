@@ -80,11 +80,9 @@ fifo_dequeue_node(fifo_t *fifo, fifo_node_t **garbage)
     }
 
     value = head->value;
-
     fifo->head = head->next;
     fifo->size--;
     *garbage = head;
-
     return value;
 }
 

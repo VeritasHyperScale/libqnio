@@ -10,79 +10,46 @@
 
 #include <pthread.h>
 
-#include "qnio.h"
 #include "defs.h"
+#include "qnio_api.h"
+#include "qnio.h"
+#include "qnio_client.h"
+#include "utils.h"
 
-pthread_mutex_t        conn_lock;
-pthread_mutex_t        chnl_lock;
+#define CONN_TRY_SYNC               0
+#define CONN_TRY_ASYNC              1
+
+static struct qnio_client_ctx *qnc_ctx; /* Network client context */
+static struct qnio_common_ctx *cmn_ctx;
 
 static void *client_epoll(void *);
 
-/*
- * Function to determine if a channel is usable or not
- * Iterates over the channel to find if there is a single
- * connection which is not disconnected. Returns true if
- * it finds one. Otherwise returns false.
- */
-bool
-is_channel_usable(struct channel *chan)
+static void
+close_connections(struct network_channel *netch)
 {
-    struct conn *tmp_c = NULL;
-    bool retval = false;
-    int i = 0;
+    int i;
+    struct conn *conn;
 
-    pthread_mutex_lock(&conn_lock);
+    nioDbg("Closing connections");
     for (i = 0; i < MAX_CONN; i++) {
-        tmp_c = chan->conn[i];
-        if (tmp_c && !(ck_pr_load_int(&tmp_c->flags) & CONN_FLAG_DISCONNECTED)) {
-            retval = true;
-            break;
+        conn = netch->conn[i];
+        if (conn) {
+            if (conn->ns.io_class != NULL) {
+                conn->ns.io_class->close(&conn->ns);
+            }
+            if (conn->ev.io_class != NULL) {
+                conn->ev.io_class->close(&conn->ev); 
+            }
+            safe_fifo_free(&conn->fifo_q);
+            netch->conn[i] = NULL;
+            free(conn);
         }
     }
-    pthread_mutex_unlock(&conn_lock);
-    return retval;
-}
-
-inline int
-close_connection(struct conn *c)
-{
-    int          i = 0;
-
-    if (c->ns.io_class != NULL) {
-        c->ns.io_class->close(&c->ns);
-    }
-
-    if (c->ev.io_class != NULL) {
-        c->ev.io_class->close(&c->ev);
-    }
-    /* reset the streaming and in-use flags */
-    pthread_mutex_lock(&conn_lock);
-    for (i = 0; i < MAX_CONN; i++) {
-        if (c == c->channel->conn[i]) {
-            c->channel->conn[i] = NULL;
-            break;
-        }
-    }
-    free(c);
-    pthread_mutex_unlock(&conn_lock);
-    return (0);
-}
-
-static int
-spawn_epoll(struct qnio_client_epoll_unit *eu)
-{
-    int retval = 0;
-
-    retval = pthread_create(&eu->client_epoll, NULL, client_epoll,
-                            (void *)eu);
-    if (retval != 0) {
-        nioDbg("epoll thread create failed");
-    }
-    return (retval);
+    return;
 }
 
 static struct conn *
-open_connection(struct channel *channel, int flags, int euid)
+open_connection(struct network_channel *netch, int flags, int euid)
 {
     int sock = -1, epoll_err;
     struct sockaddr_in my_addr;
@@ -110,7 +77,7 @@ open_connection(struct channel *channel, int flags, int euid)
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
 
-    err = getaddrinfo(channel->name,channel->port,&hints,&infos);
+    err = getaddrinfo(netch->name, netch->port, &hints, &infos);
     if(err) {
         if(err == EAI_SYSTEM) {
             err = errno;
@@ -120,7 +87,7 @@ open_connection(struct channel *channel, int flags, int euid)
     }
 
     if(infos == NULL) {
-        nioDbg("getaddrinfo: failed no ipv4ip for channel %s",channel->name);
+        nioDbg("getaddrinfo: failed no ipv4ip for channel %s", netch->name);
         goto out;
     }
 
@@ -139,13 +106,12 @@ open_connection(struct channel *channel, int flags, int euid)
     }
         
     memset(c, 0, sizeof (struct conn));
-    c->channel = channel;
-    c->ctx = channel->ctx;
+    c->netch = netch;
+    c->ctx = cmn_ctx;
     c->ns.conn = c->ev.conn = c;
     c->euid = euid;
 
     set_close_on_exec(sock);
-
     err = make_socket_non_blocking(sock);
     if(err == -1) {
         nioDbg("open_connection: make_socket_non_blocking failed [%d]",errno);
@@ -169,7 +135,7 @@ open_connection(struct channel *channel, int flags, int euid)
     /* Add event and network sockets to epoll ctl */
     ep_event.events = EPOLLIN;
     ep_event.data.ptr = &c->ev;
-    epoll_err = epoll_ctl(channel->ctx->ceu[euid].epoll_fd, EPOLL_CTL_ADD,
+    epoll_err = epoll_ctl(qnc_ctx->ceu[euid].epoll_fd, EPOLL_CTL_ADD,
                     c->ev.sock, &ep_event);
     if (epoll_err == -1) {
         nioDbg("open_connection: epoll_ctl error %d",errno);
@@ -177,7 +143,7 @@ open_connection(struct channel *channel, int flags, int euid)
     }
     ep_event.events = EPOLLIN | EPOLLRDHUP;
     ep_event.data.ptr = &c->ns;
-    epoll_err = epoll_ctl(channel->ctx->ceu[euid].epoll_fd, EPOLL_CTL_ADD,
+    epoll_err = epoll_ctl(qnc_ctx->ceu[euid].epoll_fd, EPOLL_CTL_ADD,
                     c->ns.sock, &ep_event);
     if (epoll_err == -1) {
         nioDbg("open_connection: epoll_ctl2 error %d",errno);
@@ -216,7 +182,7 @@ out:
  * Otherwise returns -1
  */
 static int
-reopen_connection(struct channel *channel, struct conn *c, int async, int euid)
+reopen_connection(struct network_channel *netch, struct conn *c, int async, int euid)
 {
     int sock = -1, epoll_err;
     struct sockaddr_in my_addr;
@@ -265,7 +231,7 @@ reopen_connection(struct channel *channel, struct conn *c, int async, int euid)
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
 
-    err = getaddrinfo(channel->name,channel->port,&hints,&infos);
+    err = getaddrinfo(netch->name, netch->port, &hints, &infos);
     if(err) {
         if(err == EAI_SYSTEM)
             err = errno;
@@ -274,7 +240,7 @@ reopen_connection(struct channel *channel, struct conn *c, int async, int euid)
     }
 
     if(infos == NULL) {
-        nioDbg("getaddrinfo2: failed no ipv4ip for channel %s",channel->name);
+        nioDbg("getaddrinfo2: failed no ipv4ip for channel %s", netch->name);
         err = -1;
         goto out;
     }
@@ -290,7 +256,7 @@ reopen_connection(struct channel *channel, struct conn *c, int async, int euid)
             c->ns.sock = sock;
             ep_event.events = EPOLLOUT | EPOLLERR;
             ep_event.data.ptr = &c->ns;
-            epoll_err = epoll_ctl(channel->ctx->ceu[euid].epoll_fd,
+            epoll_err = epoll_ctl(qnc_ctx->ceu[euid].epoll_fd,
                                   EPOLL_CTL_ADD, c->ns.sock, &ep_event);
             if (epoll_err == -1) {
                 err = errno;
@@ -315,7 +281,7 @@ reopen_connection(struct channel *channel, struct conn *c, int async, int euid)
 
     ep_event.events = EPOLLIN | EPOLLRDHUP;
     ep_event.data.ptr = &c->ns;
-    epoll_err = epoll_ctl(channel->ctx->ceu[euid].epoll_fd, EPOLL_CTL_ADD,
+    epoll_err = epoll_ctl(qnc_ctx->ceu[euid].epoll_fd, EPOLL_CTL_ADD,
                     c->ns.sock, &ep_event);
     if (epoll_err == -1) {
         err = errno;
@@ -345,14 +311,14 @@ out:
  * Returns 0 for sucess and -1 for failure.
  */
 static int
-reconnect_channel(struct channel *channel)
+reconnect_channel(struct network_channel *netch)
 {
     int i, ret = 0;
     struct conn *c;
 
     nioDbg("Reconnecting channel");
     for (i = 0; i < CHNL_DEFAULT_CONNECTIONS; i++) {
-        c = channel->conn[i];
+        c = netch->conn[i];
         if(!c) {
             continue;
         }
@@ -362,19 +328,19 @@ reconnect_channel(struct channel *channel)
         }
         if (ck_pr_load_int(&c->flags) & CONN_FLAG_DISCONNECTED) {
             nioDbg("Trying reconnect for connection #%d",i);
-            ret = reopen_connection(channel, c, CONN_TRY_SYNC, c->euid);
+            ret = reopen_connection(netch, c, CONN_TRY_SYNC, c->euid);
             if(ret != 0) {
                 nioDbg("Connection reopen failed %d", ret);
                 return ret;
             }
         }
     }
-    ck_pr_and_int(&channel->flags, ~CHAN_DISCONNECTED);
+    ck_pr_and_int(&netch->flags, ~CHAN_DISCONNECTED);
     return (0);
 }
 
 static int
-create_connections(struct channel *channel, int count)
+create_connections(struct network_channel *netch, int count)
 {
     int          i, got_conn = 0;
     struct conn *c;
@@ -382,10 +348,10 @@ create_connections(struct channel *channel, int count)
 
     nioDbg("Opening connections");
     for (i = 0; i < count; i++,euid++) {
-        c = open_connection(channel, CONN_FLAG_REGULAR, euid % MAX_CLIENT_EPOLL_UNITS);
+        c = open_connection(netch, CONN_FLAG_REGULAR, euid % (MAX_CLIENT_EPOLL_UNITS - 2));
         if (c != NULL) {
             got_conn = 1;
-            channel->conn[i] = c;
+            netch->conn[i] = c;
         } else {
             /*TODO: Need to see if this condition needs handling */
         }
@@ -396,165 +362,63 @@ create_connections(struct channel *channel, int count)
     return (0);
 }
 
-qnio_error_t
-qnio_set_client_gc_callback(struct qnio_ctx *ctx, qnio_notify callback)
+/*
+ * Called when channel gets disconnected.
+ * Set error state and call notify (io_done) for each
+ * message with pending response.
+ */
+static void
+flush_pending_messages(struct conn *c)
 {
-    if(ctx) {
-        ctx->gc = callback;
-    }
-    return QNIOERROR_SUCCESS;
-}
+    struct qnio_msg *msg = NULL;
+    list_t *list, *tmplist;
 
-qnio_error_t
-qnio_set_client_msg_io_done_callback(struct qnio_ctx *ctx, qnio_notify callback)
-{
-    if(ctx) {
-        ctx->msg_io_done = callback;
-    }
-
-    return QNIOERROR_SUCCESS;
-}
-
-struct qnio_ctx *
-qnio_client_init(qnio_notify client_notify)
-{
-    struct epoll_event event;
-    struct qnio_ctx *ctx = NULL;
-    int i;
-
-    nioDbg("Starting client init");
-
-    pthread_mutex_lock(&chnl_lock);
-    ctx = (struct qnio_ctx *)malloc(sizeof (struct qnio_ctx));
-    ctx->channels = new_qnio_map(compare_key, NULL, NULL);
-    ctx->notify = client_notify;
-    ctx->gc = NULL;
-    ctx->msg_io_done = NULL;
-    ctx->nmsgid = 1;
-    ctx->in = ctx->out = 0;
-
-
-    /* Initialize slab pools */
-    slab_init(&ctx->msg_pool, MSG_POOL_SIZE, sizeof(struct qnio_msg), 0, NULL);
-    for(i=0;i<MAX_CLIENT_EPOLL_UNITS+1;i++) {
-        ck_pr_store_int(&(ctx->ceu[i].exit_thread), 0);
-        ctx->ceu[i].activefds = calloc(MAXFDS, sizeof event);
-        ctx->ceu[i].epoll_fd = epoll_create1(0);
-        if(ctx->ceu[i].epoll_fd == -1) {
-            nioDbg("epoll_create error");
-            goto out;
+    nioDbg("Flush all pending messages");
+    LIST_FOREACH_SAFE(&c->msgs, list, tmplist) {
+        msg = LIST_ENTRY(list, struct qnio_msg, lnode);
+        LIST_DEL(&msg->lnode);
+        msg->hinfo.err = QNIOERROR_HUP;
+        if (msg->hinfo.flags & QNIO_FLAG_SYNC_REQ) {
+            ck_pr_store_int(&msg->resp_ready, 1);
+        } else if (c->ctx->notify) {
+            c->ctx->notify(msg);
         }
-        ctx->ceu[i].ctx = ctx;
-        spawn_epoll(&ctx->ceu[i]);
     }
-
-out:
-    pthread_mutex_unlock(&chnl_lock);
-    nioDbg("Client init done");
-    return (ctx);
 }
 
-void
-qnio_client_fini(struct qnio_ctx *ctx)
+/*
+ * Flushes all messages from
+ * the send queue corresponding to the given connection.
+ * Calls notify (io_done) for each of the messages
+ * and removes the message from the map.
+ */
+static void
+flush_message_queue(struct conn *c)
 {
-    int i;
-    struct epoll_event ep_event;
-    int fd[MAX_CLIENT_EPOLL_UNITS+1];
+    struct qnio_msg          *msg = NULL;
 
-    /*
-     * Stop epoll threads
-     */
-
-    nioDbg("Starting client fini"); 
-    for(i=0; i < MAX_CLIENT_EPOLL_UNITS+1; i++) {
-        ck_pr_store_int(&(ctx->ceu[i].exit_thread), 1);
-        fd[i] = eventfd(0, EFD_NONBLOCK);
-        ep_event.events = EPOLLIN;
-        ep_event.data.ptr = NULL;
-        epoll_ctl(ctx->ceu[i].epoll_fd, EPOLL_CTL_ADD, fd[i],  &ep_event);
-        eventfd_write(fd[i], 1);
-    }
-
-    for(i=0; i < MAX_CLIENT_EPOLL_UNITS+1; i++) {
-        pthread_join(ctx->ceu[i].client_epoll, NULL);
-    }
-
-    for(i=0;i<MAX_CLIENT_EPOLL_UNITS+1;i++) {
-        if (ctx->ceu[i].epoll_fd >= 0) {
-            close(ctx->ceu[i].epoll_fd);
+    nioDbg("Flush all pending messages from queue");
+    while(safe_fifo_size(&c->fifo_q) > 0) {
+        msg = (struct qnio_msg *) safe_fifo_dequeue(&c->fifo_q);
+        if(msg == NULL) {
+            break;
         }
-        if (fd[i] >= 0) {
-            close(fd[i]);
+        msg->hinfo.err = QNIOERROR_HUP;
+        if (msg->hinfo.flags & QNIO_FLAG_SYNC_REQ) {
+            ck_pr_store_int(&msg->resp_ready, 1);
+        } else if (c->ctx->notify) {
+            c->ctx->notify(msg);
         }
-        free(ctx->ceu[i].activefds);
     }
-
-    free(ctx->channels);
-    slab_free(&ctx->msg_pool);
-    free(ctx);
-}
-
-qnio_error_t
-qnio_create_channel(struct qnio_ctx *ctx, char *hostname, char *port)
-{
-    qnio_error_t      err = QNIO_ERR_SUCCESS;
-    struct channel *channel = NULL;
-
-    if (hostname == NULL) {
-        nioDbg("Channel name is null");
-        return (-1);
-    }
-
-    if(port == NULL) {
-        port = QNIO_DEFAULT_PORT;
-    }
-
-    pthread_mutex_lock(&chnl_lock);
-    /* If channel already defined, perform no-op */
-    if (qnio_map_find(ctx->channels, hostname) != NULL) {
-        nioDbg("Channel already exists");
-        pthread_mutex_unlock(&chnl_lock);
-        return (QNIO_ERR_CHAN_EXISTS);
-    }
-
-    channel = (struct channel *)malloc(sizeof (struct channel));
-    memset(channel, 0, sizeof(struct channel));
-
-    channel->ctx = ctx;
-    channel->flags = CHAN_CLIENT;
-    strncpy(channel->name, hostname, strlen(hostname) + 1);
-    strncpy(channel->port, port, strlen(port) + 1);
-
-    channel->free_conn_idx = 0;
-    channel->next_stream_idx = CHNL_DEFAULT_CONNECTIONS;
-    if (create_connections(channel, CHNL_DEFAULT_CONNECTIONS) != 0) {
-        nioDbg("Failed to open single connection");
-        nioDbg("hostname=%s, port=%s", channel->name, channel->port);
-        err = QNIO_ERR_CHAN_CREATE_FAILED;
-        goto err;
-    }
-    qnio_map_insert(ctx->channels, channel->name,
-                  (struct channel *)channel);
-err:
-    pthread_mutex_unlock(&chnl_lock);
-    return (err);
-}
-
-qnio_error_t
-qnio_destroy_channel(struct qnio_ctx *ctx, char *chnl_name)
-{
-    qnio_error_t err = QNIOERROR_SUCCESS;
-    return (err);
 }
 
 static void *
 client_epoll(void *args)
 {
-    struct endpoint   *e;
     struct qnio_client_epoll_unit *eu = (struct qnio_client_epoll_unit *) args;
-    int                n, i;
-    struct epoll_event ep_event;
-    struct qnio_msg *msg;
+    struct epoll_event      ep_event;
+    struct endpoint         *e;
+    int                     n, i;
 
     nioDbg("Starting client epoll loop");
     /* The event loop */
@@ -566,23 +430,13 @@ client_epoll(void *args)
             break;
         }
         for (i = 0; i < n; i++) {
-            if (eu->activefds[i].events & EPOLLRDHUP) {
+            if (eu->activefds[i].events & (EPOLLRDHUP | EPOLLHUP)) {
                 /* This implies client socket disconnected */
                 e = (struct endpoint *)eu->activefds[i].data.ptr;
                 
-                if (!(ck_pr_load_int(&(e->conn->channel->flags)) &
-                    CHAN_DISCONNECTED) && e->conn->euid == 0) {
-                    nioDbg("Notifying for channel hangup");
-                    msg = (struct qnio_msg *) malloc(sizeof(struct qnio_msg));
-                    memset(msg, 0, sizeof(struct qnio_msg));
-                    msg->hinfo.err = QNIOERROR_CHANNEL_HUP;
-                    msg->reserved = e->conn->ctx->apictx;
-                    e->conn->ctx->notify(msg);
-                }
-
                 nioDbg("Client socket disconnected. Channel is not usable");
                 /* Mark channel as disconnected */
-                ck_pr_or_int(&(e->conn->channel->flags), CHAN_DISCONNECTED);
+                ck_pr_or_int(&(e->conn->netch->flags), CHAN_DISCONNECTED);
 
                 /* Mark the connection as disconnected */
                 ck_pr_or_int(&(e->conn->flags), CONN_FLAG_DISCONNECTED);
@@ -595,8 +449,7 @@ client_epoll(void *args)
                 /* Flush pending messages from message queue for this connection */
                 flush_message_queue(e->conn);
                 continue;
-            }
-            else if ((eu->activefds[i].events & EPOLLERR) ||
+            } else if ((eu->activefds[i].events & EPOLLERR) ||
                 (eu->activefds[i].events & EPOLLHUP) ||
                 (!(eu->activefds[i].events & EPOLLIN))) {
                 nioDbg("Got EPOLLERR or EPOLLHUP");
@@ -619,42 +472,124 @@ client_epoll(void *args)
     return (NULL);
 }
 
+static int
+spawn_epoll(struct qnio_client_epoll_unit *eu)
+{
+    int retval = 0;
+
+    retval = pthread_create(&eu->client_epoll, NULL, client_epoll,
+                            (void *)eu);
+    if (retval != 0) {
+        nioDbg("epoll thread create failed");
+    }
+    return (retval);
+}
+
+/*
+ * client_lock should be held before calling.
+ */
+static void
+qnc_client_start(void)
+{
+    struct epoll_event event;
+    int i;
+
+    nioDbg("Starting Network Client.");
+    qnc_ctx->channels = new_qnio_map(compare_key, NULL, NULL);
+
+    for(i=0; i < MAX_CLIENT_EPOLL_UNITS; i++) {
+        ck_pr_store_int(&(qnc_ctx->ceu[i].exit_thread), 0);
+        qnc_ctx->ceu[i].activefds = calloc(MAXFDS, sizeof event);
+        qnc_ctx->ceu[i].epoll_fd = epoll_create1(0);
+        if(qnc_ctx->ceu[i].epoll_fd == -1) {
+            nioDbg("epoll_create error");
+            goto out;
+        }
+        spawn_epoll(&qnc_ctx->ceu[i]);
+    }
+
+out:
+    nioDbg("Client init done");
+    return;
+}
+
+/*
+ * client_lock should be held before calling.
+ */
+static void
+qnc_client_stop(void)
+{
+    int i;
+    struct epoll_event ep_event;
+    int fd[MAX_CLIENT_EPOLL_UNITS];
+
+    /*
+     * Stop epoll threads
+     */
+    nioDbg("Stopping Network Client.");
+    for(i=0; i < MAX_CLIENT_EPOLL_UNITS; i++) {
+        ck_pr_store_int(&(qnc_ctx->ceu[i].exit_thread), 1);
+        fd[i] = eventfd(0, EFD_NONBLOCK);
+        ep_event.events = EPOLLIN;
+        ep_event.data.ptr = NULL;
+        epoll_ctl(qnc_ctx->ceu[i].epoll_fd, EPOLL_CTL_ADD, fd[i],  &ep_event);
+        eventfd_write(fd[i], 1);
+    }
+
+    for(i=0; i < MAX_CLIENT_EPOLL_UNITS; i++) {
+        pthread_join(qnc_ctx->ceu[i].client_epoll, NULL);
+    }
+
+    for(i=0;i<MAX_CLIENT_EPOLL_UNITS; i++) {
+        if (qnc_ctx->ceu[i].epoll_fd >= 0) {
+            close(qnc_ctx->ceu[i].epoll_fd);
+        }
+        if (fd[i] >= 0) {
+            close(fd[i]);
+        }
+        free(qnc_ctx->ceu[i].activefds);
+    }
+
+    free(qnc_ctx->channels);
+    return;
+}
+
 static inline struct conn *
-get_free_connection(struct channel *ch, int flags)
+get_free_connection(struct network_channel *netch, int flags)
 {
     struct conn *c = NULL;
     int ret = 0;
     int i = 0;
 
-    if (ck_pr_load_int(&ch->flags) & CHAN_DISCONNECTED) {
+    if (ck_pr_load_int(&netch->flags) & CHAN_DISCONNECTED) {
         nioDbg("Trying to reconnect channel");
         /* Need a lock here since this will be in the IO codepath */
-        pthread_mutex_lock(&conn_lock);
-        ret = reconnect_channel(ch);
+        pthread_mutex_lock(&netch->conn_lock);
+        ret = reconnect_channel(netch);
         if(ret != 0) {
             nioDbg("Channel reconnect failed");
-            pthread_mutex_unlock(&conn_lock);
+            pthread_mutex_unlock(&netch->conn_lock);
             return NULL;
         }
         nioDbg("Channel reconnected");
-        pthread_mutex_unlock(&conn_lock);
+        pthread_mutex_unlock(&netch->conn_lock);
     }
 
     if (flags == CONN_FLAG_REGULAR) {
-        c = ch->conn[ch->free_conn_idx % CHNL_DEFAULT_CONNECTIONS];
-        ck_pr_inc_64(&(ch->free_conn_idx));
+        c = netch->conn[netch->free_conn_idx % CHNL_DEFAULT_CONNECTIONS];
+        ck_pr_inc_64(&(netch->free_conn_idx));
     } else {
-        c = open_connection(ch, CONN_FLAG_STREAM, MAX_CLIENT_EPOLL_UNITS);
+        c = open_connection(netch, CONN_FLAG_STREAM, MAX_CLIENT_EPOLL_UNITS - 1);
         if (c == NULL) {
             return (NULL);
         }
-        pthread_mutex_lock(&conn_lock);
+        pthread_mutex_lock(&netch->conn_lock);
         for(i=0;i<MAX_STREAMS;i++) {
-            if(ch->conn[ch->next_stream_idx]) {
-                if(ch->next_stream_idx < (MAX_CONN-1)) {
-                    ch->next_stream_idx++;
+            if(netch->conn[netch->next_stream_idx]) {
+                if(netch->next_stream_idx < (MAX_CONN-1)) {
+                    netch->next_stream_idx++;
                 } else {
-                    ch->next_stream_idx = CHNL_DEFAULT_CONNECTIONS;
+                    netch->next_stream_idx = CHNL_DEFAULT_CONNECTIONS;
                 }
                 continue;
             } else {
@@ -663,14 +598,14 @@ get_free_connection(struct channel *ch, int flags)
         }
         if(i == MAX_STREAMS) {
             errno = EMFILE;
-            pthread_mutex_unlock(&conn_lock);
+            pthread_mutex_unlock(&netch->conn_lock);
             return NULL;
         }
-        ch->conn[ch->next_stream_idx] = c;
+        netch->conn[netch->next_stream_idx] = c;
 
         /* Use the index as the stream id */
-        c->stream_id = ch->next_stream_idx;
-        pthread_mutex_unlock(&conn_lock);
+        c->stream_id = netch->next_stream_idx;
+        pthread_mutex_unlock(&netch->conn_lock);
         nioDbg("stream ID = %d", c->stream_id);
     }
     if (c != NULL) {
@@ -689,6 +624,8 @@ send_on_connection(struct qnio_msg *msg, struct conn *c)
     nioDbg("Msg is born on client side msgid=%ld %p",msg->hinfo.cookie, msg);
     if (ck_pr_load_int(&c->flags) & CONN_FLAG_DISCONNECTED) {
         nioDbg("Connection is not usable");
+        msg->hinfo.err = QNIOERROR_HUP;
+        errno = ENXIO;
         return -1;
     }
 
@@ -700,87 +637,165 @@ send_on_connection(struct qnio_msg *msg, struct conn *c)
     return (0);
 }
 
-qnio_error_t
-qnio_send_recv(struct qnio_ctx *ctx, struct qnio_msg *msg)
+struct channel *
+qnc_channel_open(void *channel_arg)
 {
-    struct channel *channel = NULL;
-    struct conn    *c = NULL;
+    struct network_channel_arg *nc_arg;
+    struct network_channel *netch;
+    int ret;
 
-    if (!msg) {
-        return (-1);
+    nc_arg = (struct network_channel_arg *)channel_arg;
+    if (!qnc_ctx) {
+        nioDbg("Network client not initialized");
+        return NULL;
     }
 
-    msg->hinfo.flags = QNIO_FLAG_SYNC_REQ | QNIO_FLAG_REQ_NEED_RESP;
-
-    /* get channel */
-    channel = qnio_map_find(ctx->channels, msg->channel);
-    if (!channel) {
-        return (-1);
+    pthread_mutex_lock(&qnc_ctx->chnl_lock);
+    if (qnc_ctx->nchannel == 0) {
+        qnc_client_start();
     }
-    /* find appropriate connection in channel */
-    c = get_free_connection(channel, CONN_FLAG_REGULAR);
-    if (!c) {
-        errno = EAGAIN;
-        return (-1);
+    netch = qnio_map_find(qnc_ctx->channels, nc_arg->host);
+    if (netch) {
+        netch->refcount ++;
+        pthread_mutex_unlock(&qnc_ctx->chnl_lock);
+        nioDbg("Channel already exists");
+        if (ck_pr_load_int(&netch->flags) & CHAN_DISCONNECTED) {
+            pthread_mutex_lock(&netch->conn_lock);
+            ret = reconnect_channel(netch);
+            pthread_mutex_unlock(&netch->conn_lock);
+            if(ret != 0) {
+                pthread_mutex_lock(&qnc_ctx->chnl_lock);
+                netch->refcount --;
+                pthread_mutex_unlock(&qnc_ctx->chnl_lock);
+                return NULL;
+            }
+        }
+        return &netch->channel;
     }
 
-    msg->resp_ready = 0;
-    nioDbg("Enqueuing sync send message");
-    send_on_connection(msg, c);
-    nioDbg("Waiting for sync send response");
-    while (ck_pr_load_int(&msg->resp_ready) == 0) {
-        usleep(SEND_RECV_SLEEP);
+    netch = (struct network_channel *)malloc(sizeof (struct network_channel));
+    memset(netch, 0, sizeof (struct network_channel));
+    netch->channel.cd = &qnc_ctx->drv;
+    netch->refcount = 1;
+    safe_strncpy(netch->name, nc_arg->host, NAME_SZ64);
+    safe_strncpy(netch->port, nc_arg->port, PORT_SZ);
+    netch->free_conn_idx = 0;
+    netch->next_stream_idx = CHNL_DEFAULT_CONNECTIONS;
+    if (create_connections(netch, CHNL_DEFAULT_CONNECTIONS) != 0) {
+        nioDbg("Failed to open connection");
+        goto err;
     }
-
-    nioDbg("Got sync send response");
-    return (msg->hinfo.err);
+    qnio_map_insert(qnc_ctx->channels, netch->name, (struct network_channel *)netch);
+    qnc_ctx->nchannel++;
+    pthread_mutex_unlock(&qnc_ctx->chnl_lock);
+    return &netch->channel;
+    
+err:
+    if (netch) {
+        free(netch);
+    }
+    if (qnc_ctx->nchannel == 0) {
+        qnc_client_stop();
+    }
+    pthread_mutex_unlock(&qnc_ctx->chnl_lock);
+    return NULL;
 }
 
-qnio_error_t
-qnio_send(struct qnio_ctx *ctx, struct qnio_msg *msg)
+void
+qnc_channel_close(struct channel *channel)
 {
-    struct channel *channel = NULL;
-    struct conn    *c = NULL;
+    struct network_channel *netch = (struct network_channel *)channel;
 
-    if (!msg) {
-        return (-1);
+    pthread_mutex_lock(&qnc_ctx->chnl_lock);
+    netch->refcount --;
+    if (netch->refcount) {
+        pthread_mutex_unlock(&qnc_ctx->chnl_lock);
+        return;
     }
+    
+    close_connections(netch);
+    qnio_map_delete(qnc_ctx->channels, netch->name);
+    free(netch);
+    qnc_ctx->nchannel --;
+    if (qnc_ctx->nchannel == 0) {
+        qnc_client_stop();
+    }
+    pthread_mutex_unlock(&qnc_ctx->chnl_lock);
+}
 
-    /* get channel */
-    channel = qnio_map_find(ctx->channels, msg->channel);
-    if (!channel) {
-        return (-1);
+static void
+qnc_message_resend_cleanup(struct qnio_msg *msg)
+{
+    ck_pr_store_int(&msg->resp_ready, 0);
+    msg->hinfo.err = 0;
+    if (msg->io_buf != NULL) {
+        switch (msg->buf_source) {
+        case BUF_SRC_USER:
+            break;
+
+        case BUF_SRC_MALLOC:
+            free(msg->io_buf);
+            if (msg->recv) {
+                io_vector_delete(msg->recv);
+                msg->recv = NULL;
+            }
+            break;
+
+        case BUF_SRC_POOL:
+            slab_put(msg->io_pool, msg->io_buf);
+            msg->io_buf = NULL;
+            if (msg->recv) {
+                io_vector_delete(msg->recv);
+                msg->recv = NULL;
+            }
+            break;
+
+        default:
+            nioDbg("Unknown buffer source");
+            break;
+        }
     }
+    return;
+}
+    
+static qnio_error_t
+qnc_message_send(struct channel *channel, struct qnio_msg *msg)
+{
+    struct conn *c = NULL;
+    struct network_channel *netch;
+
     /* find appropriate connection in channel */
-    c = get_free_connection(channel, CONN_FLAG_REGULAR);
+    netch = (struct network_channel *)channel;
+    c = get_free_connection(netch, CONN_FLAG_REGULAR);
     if (!c) {
-        errno = EAGAIN;
-        return (-1);
+        msg->hinfo.err = QNIOERROR_HUP;
+        return -1;
     }
+
     return (send_on_connection(msg, c));
 }
 
-struct qnio_msg *
-qnio_alloc_msg(struct qnio_ctx *ctx)
+struct channel_driver *
+qnc_driver_init(qnio_notify client_notify)
 {
-    struct qnio_msg *msg;
-
-    msg = (struct qnio_msg *) slab_get(&ctx->msg_pool);
-    clear_msg(msg);
-    msg->msg_pool = &ctx->msg_pool;
-    return msg;
-}
-
-qnio_error_t
-qnio_free_msg(struct qnio_msg *msg)
-{
-    slab_t *msg_pool;
-
-    if(msg == NULL || msg->msg_pool == NULL) {
-        return -1;
+    if (qnc_ctx) {
+        nioDbg("Driver already initialized");
+        return NULL;
     }
-    msg_pool = msg->msg_pool;
-    nioDbg("Msg is returned back to pool msgid=%ld %p",msg->hinfo.cookie,msg);
-    slab_put(msg_pool, msg);
-    return QNIOERROR_SUCCESS;
+
+    qnc_ctx = (struct qnio_client_ctx *)malloc(sizeof (struct qnio_client_ctx));
+    cmn_ctx = (struct qnio_common_ctx *)malloc(sizeof (struct qnio_common_ctx));
+    qnc_ctx->drv.chdrv_type = IIO_NETWORK_CHANNEL;
+    qnc_ctx->channels = NULL;
+    qnc_ctx->nchannel = 0;
+    pthread_mutex_init(&qnc_ctx->chnl_lock, NULL);
+    qnc_ctx->drv.chdrv_open = qnc_channel_open;
+    qnc_ctx->drv.chdrv_close = qnc_channel_close;
+    qnc_ctx->drv.chdrv_msg_resend_cleanup = qnc_message_resend_cleanup;
+    qnc_ctx->drv.chdrv_msg_send = qnc_message_send;
+
+    cmn_ctx->mode = QNIO_CLIENT_MODE;
+    cmn_ctx->in = cmn_ctx->out = 0;
+    cmn_ctx->notify = client_notify;
+    return &qnc_ctx->drv;
 }

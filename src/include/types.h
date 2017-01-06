@@ -161,8 +161,10 @@ typedef void (*rd_free_buf_t) (void *iov, void *ctx);
 #define DEVNAME_SZ         256
 #define DIR_NAME_SZ        256
 #define FILE_NAME_SZ       128
+#define PORT_SZ            8
 #define OF_GUID_STR_LEN    40
 #define OF_GUID_STR_SZ     (OF_GUID_STR_LEN + 1)
+#define MAX_HOSTS           4
 
 #define GUID_EQ(guid1, guid2)    (!memcmp((guid1), (guid2), sizeof (qnio_guid_t)))
 #define SET_HANDLE_PTR     (x, y)(((generic_handle *)(x))->_u.ptr = (y))

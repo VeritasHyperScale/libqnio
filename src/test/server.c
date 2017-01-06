@@ -9,19 +9,11 @@
  */
 
 #include <pthread.h>
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <string.h>
 #include <libgen.h>
-#include <linux/unistd.h>
-#include <sys/uio.h>
+#include "defs.h"
 #include "qnio.h"
-#include "datastruct.h"
-#include <fcntl.h>
-#include <signal.h>
-#include "qnio_api.h"
+#include "utils.h"
+#include "qnio_server.h"
 
 #define VDISK_SIZE_BYTES    "vdisk_size_bytes"
 
@@ -42,7 +34,7 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
 
     offset = msg->hinfo.io_offset;
     size = msg->hinfo.io_size;
-    strcpy(vdisk_path_temp, msg->hinfo.target);
+    safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
     bname = basename(vdisk_path_temp);
     sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
     backing_file = fopen(vdisk_path, "r");
@@ -84,7 +76,7 @@ static int vdisk_write(struct qnio_msg *msg)
     offset = msg->hinfo.io_offset;
     iov = io_vector_at(msg->send, 0);
 
-    strcpy(vdisk_path_temp, msg->hinfo.target);
+    safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
     bname = basename(vdisk_path_temp);
     sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
     backing_file = fopen(vdisk_path, "r+");
@@ -133,10 +125,10 @@ void *pdispatch(void *data)
         printf("In server callback for msg #%ld\n", msg->hinfo.cookie);
     }
 
-    ps = new_ps(0);
     switch (opcode) {
     case IOR_VDISK_STAT:
-        strcpy(vdisk_path_temp, msg->hinfo.target);
+        ps = new_ps(0);
+        safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
         bname = basename(vdisk_path_temp);
         sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
         fd = open(vdisk_path, O_RDONLY);
@@ -163,6 +155,12 @@ void *pdispatch(void *data)
         msg->hinfo.payload_size = returnd.iov_len;
         break;
 
+    case IRP_VDISK_CHECK_IO_FAILOVER_READY:
+        msg->hinfo.err = 0;
+        msg->recv = NULL;
+        msg->hinfo.payload_size = 0;
+        break;
+
     case IRP_READ_REQUEST:
         if (vdisk_read(msg, &returnd)) {
             exit(1);
@@ -186,8 +184,7 @@ void *pdispatch(void *data)
         msg->hinfo.flags = QNIO_FLAG_RESP;
         msg->hinfo.io_flags = QNIO_FLAG_RESP;
     }
-    qnio_send_resp(msg);
-    qnio_free_msg(msg);
+    qns_send_resp(msg);
     return NULL;
 }
 
@@ -281,13 +278,13 @@ int main(int argc, char **argv)
         exit(-1);
     }
 
-    if (qnio_server_init(server_callback) != 0) {
+    if (qns_server_init(server_callback) != 0) {
         fprintf(stderr, "Server init failed\n");
         exit(-1);
     }
     printf("Server initialized\n");
     
-    if(qnio_server_start(hostname, QNIO_DEFAULT_PORT) != 0) {
+    if(qns_server_start(hostname, QNIO_DEFAULT_PORT) != 0) {
         fprintf(stderr, "Server start failed\n");
         exit(-1);
     }
