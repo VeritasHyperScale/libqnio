@@ -195,8 +195,8 @@ process_header(struct conn *conn)
 static qnio_byte_t *
 generate_header(struct qnio_msg *msg)
 {
-    qnio_byte_t     *header;
-    int            mark = REQ_MARKER;
+    qnio_byte_t *header;
+    int mark = REQ_MARKER;
 
     header = msg->header;
     memcpy(header, &mark, sizeof (int));
