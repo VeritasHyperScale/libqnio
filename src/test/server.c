@@ -125,9 +125,9 @@ void *pdispatch(void *data)
         printf("In server callback for msg #%ld\n", msg->hinfo.cookie);
     }
 
-    ps = new_ps(0);
     switch (opcode) {
     case IOR_VDISK_STAT:
+        ps = new_ps(0);
         safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
         bname = basename(vdisk_path_temp);
         sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
@@ -153,6 +153,12 @@ void *pdispatch(void *data)
         msg->recv = new_io_vector(1, NULL);
         io_vector_pushfront(msg->recv, returnd);
         msg->hinfo.payload_size = returnd.iov_len;
+        break;
+
+    case IRP_VDISK_CHECK_IO_FAILOVER_READY:
+        msg->hinfo.err = 0;
+        msg->recv = NULL;
+        msg->hinfo.payload_size = 0;
         break;
 
     case IRP_READ_REQUEST:

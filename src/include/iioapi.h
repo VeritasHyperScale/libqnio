@@ -34,11 +34,19 @@ enum iio_device_state
     IIO_DEVICE_FAILED
 };
 
+struct iio_vdisk_hostinfo
+{
+    char hosts[MAX_HOSTS][NAME_SZ];
+    int nhosts;
+    int failover_idx;
+};
+
 struct iio_device
 {
     int refcount;
     enum iio_device_state state;
     char devid[NAME_SZ64];
+    struct iio_vdisk_hostinfo *hostinfo;
     struct channel *channel;
     ck_spinlock_fas_t slock;
     list_t retryq;

@@ -17,6 +17,7 @@
 #include "cJSON.h"
 #include <inttypes.h>
 
+#define VDISK_TARGET_DIR            "/var/libqnio/vdisk"
 #define QNIO_QEMU_VDISK_SIZE_STR    "vdisk_size_bytes"
 #define IP_ADDR_LEN                 20
 #define SEND_RECV_SLEEP             200 /* micro seconds */
@@ -24,6 +25,7 @@
 #define FAILOVER_TIMEOUT            60 /* seconds */
 
 static void client_callback(struct qnio_msg *msg);
+static int iio_check_failover_ready(struct iio_device *);
 
 /*
  * Supported versions
@@ -32,6 +34,52 @@ int32_t qnio_min_version = 34;
 int32_t qnio_max_version = 34;
 struct ioapi_ctx *apictx;
 
+struct iio_vdisk_hostinfo *
+iio_read_hostinfo(const char *devid)
+{
+    FILE *fp;
+    char filename[1024];
+    char str[256];
+    char hostname[NAME_SZ64];
+    char port[PORT_SZ];
+    struct iio_vdisk_hostinfo *hostinfo;
+    int match;
+
+    hostinfo = (struct iio_vdisk_hostinfo *)malloc(sizeof (struct iio_vdisk_hostinfo));
+    sprintf(filename, "%s/%s.targets", VDISK_TARGET_DIR, devid);
+    fp = fopen(filename, "r");
+    if (!fp) {
+        goto err;
+    }
+
+    hostinfo->nhosts = 0;
+    hostinfo->failover_idx = 0;
+    while (fscanf(fp, "%255s", str) != EOF) {
+        if (hostinfo->nhosts >= MAX_HOSTS) {
+            break;
+        }
+        match = sscanf(str, "of://%64[^:]:%8s", hostname, port);
+        if (match != 2) {
+            nioDbg("Invalid entry for device %s(%s)", devid, str);
+            continue;
+        }
+        nioDbg("iio_read_hostinfo: %s\n", str);
+        strncpy(hostinfo->hosts[hostinfo->nhosts], str, NAME_SZ);
+        hostinfo->nhosts ++;
+    }
+    fclose(fp);
+    if (hostinfo->nhosts == 0) {
+        goto err;
+    }
+    return hostinfo;
+
+err:
+    if (hostinfo) {
+        free(hostinfo);
+    }
+    return NULL;
+}
+
 static struct channel *
 iio_channel_open(const char *uri)
 {
@@ -39,7 +87,7 @@ iio_channel_open(const char *uri)
     struct channel *channel;
     int match = 0;
  
-    match = sscanf(uri, "of://%99[^:]:%99s", nc_arg.host, nc_arg.port);
+    match = sscanf(uri, "of://%64[^:]:%8s", nc_arg.host, nc_arg.port);
     if(match != 2) {
         nioDbg("parse uri failed [%s] match=%d", uri, match);
         return NULL;
@@ -75,55 +123,33 @@ iio_msg_resubmit(struct iio_device *device, struct qnio_msg *msg)
     return;
 }
 
-/*
- * Temporary code to get failover server.
- * TBD: Replace this by contrller request.
- */
-char *uri0 = "of://192.168.135.3:9999";
-char *uri1 = "of://192.168.135.4:9999";
-
-static char *
-iio_get_server(const char *devid)
-{
-    static int hostid = 0;
-    char *uri;
-
-    if (hostid == 0) {
-        hostid = 1;
-        uri = uri1;
-    } else {
-        hostid = 0;
-        uri = uri0;
-    }
-    return uri;
-}
-
 static void *
 iio_device_failover_thread(void *args)
 {
     struct iio_device *device = (struct iio_device *)args;
+    struct iio_vdisk_hostinfo *hostinfo = device->hostinfo;
     struct channel *new_channel;
     struct qnio_msg *msg;
-    const char *uri;
     time_t start_t, end_t;
     double diff_t;
 
     time(&start_t);
     nioDbg("Starting failover on device %s", device->devid);
+    hostinfo->failover_idx = -1;
 
 retry:
     /*
-     * Find new host
+     * Find next host
      */
-    uri = iio_get_server(device->devid);
-    if (!uri) {
-        goto err;
+    hostinfo->failover_idx ++;
+    if (hostinfo->failover_idx == hostinfo->nhosts) {
+        hostinfo->failover_idx = 0;
     }
 
     /*
      * Open channel to the new host
      */
-    new_channel = iio_channel_open(uri);
+    new_channel = iio_channel_open(hostinfo->hosts[hostinfo->failover_idx]);
     if (new_channel == NULL) {
         time(&end_t);
         diff_t = difftime(end_t, start_t);
@@ -140,6 +166,10 @@ retry:
      */
     device->channel->cd->chdrv_close(device->channel);
     device->channel = new_channel;
+
+    if (!iio_check_failover_ready(device)) {
+        goto retry;
+    }
 
     /*
      * Restart messages
@@ -421,6 +451,7 @@ iio_open(const char *uri, const char *devid, uint32_t flags)
 {
     struct channel *channel;
     struct iio_device *device;
+    struct iio_vdisk_hostinfo *hostinfo;
     
     if(!uri || !devid) {
         errno = EINVAL;
@@ -437,9 +468,18 @@ iio_open(const char *uri, const char *devid, uint32_t flags)
         }
     }
 
+    hostinfo = iio_read_hostinfo(devid);
+    if (hostinfo == NULL) {
+        pthread_mutex_unlock(&apictx->dev_lock);
+        errno = ENXIO;
+        nioDbg("Unable to read the host information for device %s\n", devid);
+        return NULL;
+    }
+
     channel = iio_channel_open(uri);
     if (channel == NULL) {
         pthread_mutex_unlock(&apictx->dev_lock);
+        free(hostinfo);
         errno = ENXIO;
         return NULL;
     }
@@ -452,6 +492,7 @@ iio_open(const char *uri, const char *devid, uint32_t flags)
     device->active_msg_count = 0;
     device->retry_msg_count = 0;
     device->channel = channel;
+    device->hostinfo = hostinfo;
     safe_strncpy(device->devid, devid, NAME_SZ64);
     nioDbg("ndevices = %d\n", apictx->ndevices);
     if (apictx->ndevices == 0) {
@@ -484,6 +525,7 @@ iio_close(void *dev_handle)
     if (apictx->ndevices == 0) {
         iio_stop();
     }
+    free(device->hostinfo);
     free(device);
     pthread_mutex_unlock(&apictx->dev_lock);
     return 0;
@@ -694,4 +736,44 @@ iio_ioctl(void *dev_handle, uint32_t opcode, void *opaque, uint32_t flags)
 
     nioDbg("iio_ioctl opcode %u ret %d\n", opcode, ret);
     return ret;
+}
+
+/*
+ * This request is sent while failover is in progress. We need to 
+ * bypass the failover handling for this request. So, do not
+ * use iio_msg_submit(), iio_msg_wait() calls.
+ * 
+ * Returns 
+ *  1 -> Success
+ *  0 -> Failure
+ */
+int
+iio_check_failover_ready(struct iio_device *device)
+{
+    struct qnio_msg *msg = NULL;
+    struct channel *channel;
+    int err;
+
+    msg = iio_message_alloc(&apictx->msg_pool);
+    msg->hinfo.opcode = IRP_VDISK_CHECK_IO_FAILOVER_READY;
+    msg->hinfo.data_type = DATA_TYPE_RAW;
+    msg->hinfo.payload_size = 0;
+    msg->recv = NULL;
+    safe_strncpy(msg->hinfo.target, device->devid, NAME_SZ64);
+    msg->user_ctx = NULL;
+    msg->hinfo.flags = QNIO_FLAG_REQ_NEED_RESP | QNIO_FLAG_SYNC_REQ;
+    msg->reserved = device;
+    channel = device->channel;
+    err = channel->cd->chdrv_msg_send(channel, msg);
+    if (!err) {
+        while (ck_pr_load_int(&msg->resp_ready) == 0) {
+            usleep(SEND_RECV_SLEEP);
+        }
+        err = msg->hinfo.err;
+    }
+    iio_message_free(msg);
+    if (err) {
+        return 0;
+    }
+    return 1;
 }

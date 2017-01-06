@@ -23,6 +23,7 @@
  */
 #define IRP_READ_REQUEST                    0x1FFF
 #define IRP_WRITE_REQUEST                   0x2FFF
+#define IRP_VDISK_CHECK_IO_FAILOVER_READY   2020
 
 /*
  * opcodes for iio_ioctl.
