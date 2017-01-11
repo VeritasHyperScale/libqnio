@@ -128,6 +128,7 @@ iio_device_failover_thread(void *args)
 {
     struct iio_device *device = (struct iio_device *)args;
     struct iio_vdisk_hostinfo *hostinfo = device->hostinfo;
+    struct iio_vdisk_hostinfo *new_hostinfo;
     struct channel *new_channel;
     struct qnio_msg *msg;
     time_t start_t, end_t;
@@ -135,15 +136,23 @@ iio_device_failover_thread(void *args)
 
     time(&start_t);
     nioDbg("Starting failover on device %s", device->devid);
+
+read_hostinfo:
+    new_hostinfo = iio_read_hostinfo(device->devid);
+    if (new_hostinfo) {
+        free(hostinfo);
+        device->hostinfo = new_hostinfo;
+        hostinfo = new_hostinfo;
+    }
     hostinfo->failover_idx = -1;
 
-retry:
+retry_nexthost:
     /*
      * Find next host
      */
     hostinfo->failover_idx ++;
     if (hostinfo->failover_idx == hostinfo->nhosts) {
-        hostinfo->failover_idx = 0;
+        goto read_hostinfo;
     }
 
     /*
@@ -158,7 +167,7 @@ retry:
             goto err;
         }
         usleep(FAILOVER_RETRY_WAIT);
-        goto retry;
+        goto retry_nexthost;
     }
 
     /*
@@ -168,7 +177,7 @@ retry:
     device->channel = new_channel;
 
     if (!iio_check_failover_ready(device)) {
-        goto retry;
+        goto retry_nexthost;
     }
 
     /*
@@ -181,7 +190,7 @@ retry:
         LIST_DEL(&msg->lnode);
         device->retry_msg_count --;
         ck_spinlock_unlock(&device->slock);
-        nioDbg("Restarting message, msgid=%ld %p",msg->hinfo.cookie, msg);
+        nioDbg("Restarting message, msgid=%ld %p", msg->hinfo.cookie, msg);
         iio_msg_resubmit(device, msg);
         ck_spinlock_lock(&device->slock);
     }
@@ -470,13 +479,14 @@ iio_open(const char *uri, const char *devid, uint32_t flags)
 
     hostinfo = iio_read_hostinfo(devid);
     if (hostinfo == NULL) {
-        pthread_mutex_unlock(&apictx->dev_lock);
-        errno = ENXIO;
         nioDbg("Unable to read the host information for device %s\n", devid);
-        return NULL;
+        hostinfo = (struct iio_vdisk_hostinfo *)malloc(sizeof (struct iio_vdisk_hostinfo));
+        strncpy(hostinfo->hosts[hostinfo->nhosts], uri, NAME_SZ);
+        hostinfo->nhosts = 1;
+        hostinfo->failover_idx = 0;
     }
 
-    channel = iio_channel_open(uri);
+    channel = iio_channel_open(hostinfo->hosts[0]);
     if (channel == NULL) {
         pthread_mutex_unlock(&apictx->dev_lock);
         free(hostinfo);

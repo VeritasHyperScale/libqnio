@@ -154,11 +154,7 @@ struct conn
 /*
  * "struct conn" flags.
  */
-#define CONN_FLAG_REGULAR           0x0001
-#define CONN_FLAG_STREAM            0x0002
-#define CONN_FLAG_STREAM_CLOSE      0x0004
-#define CONN_FLAG_DISCONNECTED      0x0008
-#define CONN_FLAG_INPROGRESS        0x0010
+#define CONN_FLAG_DISCONNECTED      0x0001
 
 void process_outgoing_messages(struct conn *conn);
 void process_incoming_messages(struct conn *conn);

@@ -1,14 +1,8 @@
 #ifndef QNIO_CLIENT_HEADER_DEFINED
 #define QNIO_CLIENT_HEADER_DEFINED
 
-/*
- * First 8 will be used for default connections.
- * Last one is used specific connections such as EDS.
- */
-#define MAX_CLIENT_EPOLL_UNITS      9
-#define CHNL_DEFAULT_CONNECTIONS    8
-#define MAX_STREAMS                 1024
-#define MAX_CONN                    (MAX_STREAMS + CHNL_DEFAULT_CONNECTIONS)
+#define MAX_CLIENT_EPOLL_UNITS      8
+#define MAX_CONN                    8
 
 struct network_channel_arg {
     char host[NAME_SZ64];
@@ -48,7 +42,6 @@ struct network_channel
     uint64_t free_conn_idx;
     int refcount;
     int flags;
-    int next_stream_idx;
     pthread_mutex_t conn_lock;
 };
 
