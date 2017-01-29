@@ -21,7 +21,15 @@ int verbose = 0;
 int parallel = 0;
 char *hostname = "127.0.0.1";
 char *vdisk_dir = "/tmp";
-FILE *backing_file;
+FILE *backing_file = NULL;
+
+/*
+ * Dummy implementation of authorization for IO request
+ */
+static int authorize(char *instance, char *device)
+{
+    return 1;
+}
 
 static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
 {
@@ -37,7 +45,9 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
     safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
     bname = basename(vdisk_path_temp);
     sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
-    backing_file = fopen(vdisk_path, "r");
+    if (!backing_file) {
+        backing_file = fopen(vdisk_path, "r");
+    }
     if (!backing_file) {
         printf("Error opening file %s\n", vdisk_path);
         perror("fopen");
@@ -49,7 +59,7 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
     }
     returnd->iov_base = malloc(size);
     n = fread(returnd->iov_base, 1, size, backing_file);
-    fclose(backing_file);
+    //fclose(backing_file);
 
     if (verbose) {
         printf("read %ld bytes\n", n);
@@ -79,7 +89,9 @@ static int vdisk_write(struct qnio_msg *msg)
     safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
     bname = basename(vdisk_path_temp);
     sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
-    backing_file = fopen(vdisk_path, "r+");
+    if (!backing_file) {
+        backing_file = fopen(vdisk_path, "r");
+    }
     if (!backing_file) {
         printf("Error opening file %s\n", vdisk_path);
         perror("fopen");
@@ -90,7 +102,7 @@ static int vdisk_write(struct qnio_msg *msg)
         fseek(backing_file, offset, SEEK_SET);
     }
     n = fwrite(iov.iov_base, 1, iov.iov_len, backing_file);
-    fclose(backing_file);
+    //fclose(backing_file);
 
     if (verbose) {
         printf("wrote %ld bytes\n", n);
@@ -123,6 +135,17 @@ void *pdispatch(void *data)
 
     if (verbose) {
         printf("In server callback for msg #%ld\n", msg->hinfo.cookie);
+    }
+
+    if (!authorize(msg->hinfo.target, msg->hinfo.instance))
+    {
+        msg->hinfo.err = QNIO_ERR_AUTHZ_FAILED; 
+        msg->recv = NULL;
+        msg->hinfo.payload_size = 0;
+        msg->hinfo.flags = QNIO_FLAG_RESP;
+        msg->hinfo.io_flags = QNIO_FLAG_RESP;
+        qns_send_resp(msg);
+        return(NULL);
     }
 
     switch (opcode) {
@@ -210,28 +233,10 @@ usage()
             "\t v -> Verbose\n");
 }
 
-static void termsig_handler(int signum)
-{
-    exit(0);
-}
-
 int main(int argc, char **argv)
 {
-    struct sigaction sa_sigterm;
     char *logfile = "/dev/null";
     int c;
-
-    /*
-     * Handle SIGTERM signal gracefully.
-     */
-    memset(&sa_sigterm, 0, sizeof(sa_sigterm));
-    sa_sigterm.sa_handler = termsig_handler;
-    sigaction(SIGTERM, &sa_sigterm, NULL);
-
-    /*
-     * Ignore SIGPIPE
-     */ 
-    signal(SIGPIPE, SIG_IGN); 
 
     while ((c = getopt(argc, argv, "d:l:hHpv")) != -1) {
         switch (c) {
@@ -254,28 +259,6 @@ int main(int argc, char **argv)
         default:
             break;
         }
-    }
-
-    /*
-     * Redirect stdin to /dev/null
-     */
-    if (!freopen("/dev/null", "r", stdin)) {
-        fprintf(stderr, "stdin redirection failed\n");
-        exit(-1);
-    }
-
-    /*
-     * Redirect stdout, stderr to
-     * specified log device.
-     */
-    if (!freopen(logfile, "a+", stdout)) {
-        fprintf(stderr, "stdout redirection failed for %s\n", logfile);
-        exit(-1);
-    }
-
-    if(dup2(fileno(stdout), fileno(stderr)) < 0) {
-        fprintf(stderr, "dup2 failed for stdout\n");
-        exit(-1);
     }
 
     if (qns_server_init(server_callback) != 0) {

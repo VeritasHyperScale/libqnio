@@ -99,7 +99,7 @@ create_and_bind(char *node, char *port)
 }
 
 static struct endpoint *
-add_socket(int sock, struct qnio_epoll_unit *eu)
+add_socket(int sock, struct qnio_epoll_unit *eu, SSL *ssl)
 {
     struct conn *c;
     struct usa sa;
@@ -142,6 +142,11 @@ add_socket(int sock, struct qnio_epoll_unit *eu)
         safe_fifo_init(&c->fifo_q);
         c->ns.io_class = &io_socket;
         c->ns.sock = sock;
+        if (cmn_ctx->ssl_ctx)
+        {
+            c->ns.ssl = ssl;
+            c->ns.io_class = &io_ssl;
+        }
         c->ns.flags |= FLAG_DONT_CLOSE;
 
         reset_read_state(&c->rinfo);
@@ -176,6 +181,16 @@ qns_server_init(qnio_notify server_notify)
     if (qns_ctx->epoll_fd == -1) {
         nioDbg("epoll_create error");
         err = -1;
+    }
+
+    if (is_secure())
+    {
+        nioDbg("Server impl is secure");
+        cmn_ctx->ssl_ctx = init_server_ssl_ctx();
+    }
+    else
+    {
+        cmn_ctx->ssl_ctx = NULL;
     }
 
     for(i=0;i<MAX_EPOLL_UNITS;i++) {
@@ -328,6 +343,8 @@ qns_server_start(char *node, char *port)
     struct qnio_epoll_unit  *eu = NULL;
     int                     sfd, s, n, i;
     int                     eu_counter = 0;
+    SSL                     *ssl = NULL;
+    int                     ret = 0;
 
     nioDbg("Entering qnio_epoll");
     qns_ctx->node = node;
@@ -404,6 +421,7 @@ qns_server_start(char *node, char *port)
                             break;
                         }
                     }
+                    
                     s = getnameinfo(&in_addr, in_len,
                                     hbuf, sizeof hbuf,
                                     sbuf, sizeof sbuf,
@@ -412,6 +430,17 @@ qns_server_start(char *node, char *port)
                         nioDbg("Accepted connection on descriptor %d "
                                   "(host=%s, port=%s)\n", infd, hbuf, sbuf);
                     }
+                    if(cmn_ctx->ssl_ctx)
+                    {
+                        ssl = SSL_new(cmn_ctx->ssl_ctx);
+                        SSL_set_fd(ssl, infd);
+                        ret = SSL_accept(ssl);
+                        if (ret <= 0) {
+                            nioDbg("ssl accept failed %d", SSL_get_error(ssl, ret));
+                            return -1;
+                        }
+                    }
+
                     /* Make the incoming socket non-blocking and add it to the
                      *  list of fds to monitor. */
                     s = make_socket_non_blocking(infd);
@@ -425,11 +454,12 @@ qns_server_start(char *node, char *port)
                     event.data.fd = infd;
                     nioDbg("Adding connection to epoll unit #%d",eu_counter);
                     event.events = EPOLLIN | EPOLLRDHUP;
-                    event.data.ptr = add_socket(infd, eu);
+                    event.data.ptr = add_socket(infd, eu, ssl);
                     if(event.data.ptr == NULL) {
                         nioDbg("qns_server_start: add_socket returned NULL");
                         break;
                     }
+
 
                     s = epoll_ctl(eu->recv_epoll_fd,
                                   EPOLL_CTL_ADD, infd, &event);

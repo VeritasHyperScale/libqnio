@@ -28,6 +28,10 @@
 #define IO_POOL_BUF_SIZE            65536 
 #define BUF_ALIGN                   4096
 #define CRC_MODULO                  256
+#define SECURE_IMPL                 "/var/lib/libqnio/secure"
+#define SERVER_KEY                  "/var/lib/libqnio/server.key"
+#define SERVER_CERT                 "/var/lib/libqnio/server.cert"
+#define CLIENT_KEYSTORE             "/var/lib/libqnio/"
 
 #define QNIO_SYSCALL(expression)                   \
     ({ long int __result;                         \
@@ -44,6 +48,7 @@ struct qnio_common_ctx {
     enum qnio_mode mode;
     uint64_t in, out; /* IN/OUT traffic counters */
     qnio_notify notify;
+    SSL_CTX *ssl_ctx;
 };
 
 enum NSReadState { /* Network stream read state */
@@ -93,6 +98,7 @@ struct io_class
 
 extern const struct io_class io_socket;
 extern const struct io_class io_event;
+extern const struct io_class io_ssl;
 
 /*
  * Data exchange endpoint. Represents one end of a connection
@@ -103,6 +109,7 @@ struct endpoint
     unsigned int flags;
     struct conn *conn;
     const struct io_class *io_class; /* IO class */
+    SSL *ssl;   /* For secure communiation */
 };
 
 /*

@@ -11,6 +11,7 @@
 #define QNIO_ERR_SUCCESS               0
 #define QNIO_ERR_CHAN_EXISTS           1
 #define QNIO_ERR_CHAN_CREATE_FAILED    2
+#define QNIO_ERR_AUTHZ_FAILED          3
 
 #define MSG_POOL_SIZE               4096 
 
@@ -70,6 +71,7 @@ struct qnio_header
     uint64_t io_remote_hdl;
     uint32_t io_remote_flags;
     char target[NAME_SZ64];
+    char instance[NAME_SZ64];
 };
 
 struct qnio_msg

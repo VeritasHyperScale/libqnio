@@ -16,7 +16,7 @@
 #include "qnio_client.h"
 #include "utils.h"
 
-static struct qnio_client_ctx *qnc_ctx; /* Network client context */
+struct qnio_client_ctx *qnc_ctx; /* Network client context */
 static struct qnio_common_ctx *cmn_ctx;
 
 static void *client_epoll(void *);
@@ -43,6 +43,7 @@ open_connection(struct network_channel *netch, int flags, int euid)
     struct conn *c = NULL;
     int err;
     struct addrinfo hints, *infos = NULL;
+    SSL *ssl;
 
     /* creating the client socket */
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -82,6 +83,16 @@ open_connection(struct network_channel *netch, int flags, int euid)
         goto out;
     }
 
+    if(cmn_ctx->ssl_ctx)
+    {
+        ssl = SSL_new(cmn_ctx->ssl_ctx);
+        SSL_set_fd(ssl, sock);
+        if (SSL_connect(ssl) == -1) {
+            nioDbg("ssl connect failed");
+            return (NULL);
+        }
+    }
+
     freeaddrinfo(infos);
     infos = NULL;
 
@@ -111,6 +122,12 @@ open_connection(struct network_channel *netch, int flags, int euid)
     c->ns.io_class = &io_socket;
     c->ns.sock = sock;
     c->ns.flags = FLAG_DONT_CLOSE;
+
+    if (cmn_ctx->ssl_ctx)
+    {
+        c->ns.ssl = ssl;
+        c->ns.io_class = &io_ssl;
+    }
 
     reset_read_state(&c->rinfo);
     reset_write_state(&c->winfo);
@@ -699,4 +716,23 @@ qnc_driver_init(qnio_notify client_notify)
     cmn_ctx->in = cmn_ctx->out = 0;
     cmn_ctx->notify = client_notify;
     return &qnc_ctx->drv;
+}
+
+struct channel_driver *
+qnc_secure_driver_init(qnio_notify client_notify, char *instance)
+{
+    struct channel_driver *drv = NULL;
+
+    drv = qnc_driver_init(client_notify);
+    if (!is_secure())
+    {
+        nioDbg("Client is running in unsecure mode");
+        cmn_ctx->ssl_ctx = NULL;
+        return drv;
+    }
+
+    nioDbg("Client is running in secure mode");
+    qnc_ctx->instance = instance;
+    cmn_ctx->ssl_ctx = init_client_ssl_ctx(instance);
+    return drv;
 }
