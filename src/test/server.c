@@ -59,7 +59,6 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
     }
     returnd->iov_base = malloc(size);
     n = fread(returnd->iov_base, 1, size, backing_file);
-    //fclose(backing_file);
 
     if (verbose) {
         printf("read %ld bytes\n", n);
@@ -102,7 +101,6 @@ static int vdisk_write(struct qnio_msg *msg)
         fseek(backing_file, offset, SEEK_SET);
     }
     n = fwrite(iov.iov_base, 1, iov.iov_len, backing_file);
-    //fclose(backing_file);
 
     if (verbose) {
         printf("wrote %ld bytes\n", n);
@@ -226,17 +224,35 @@ void
 usage()
 {
     printf("Usage: qnio_server [-d <directory>] [-l <logfile>] [-p] [-v] [-h] \n"
-            "\t d -> Vdisk directory\n"
-            "\t l -> log file\n"
-            "\t p -> Run commands in separate thread\n"
+            "\t d -> Directory where the backing file for volume is created\n"
+            "\t l -> Log file\n"
+            "\t p -> Parallelize IO dispatch\n"
             "\t h -> Help\n"
             "\t v -> Verbose\n");
 }
 
+static void termsig_handler(int signum)
+{
+    exit(0);
+}
+
 int main(int argc, char **argv)
 {
+    struct sigaction sa_sigterm;
     char *logfile = "/dev/null";
     int c;
+
+    /*
+     * Handle SIGTERM signal gracefully.
+     */
+    memset(&sa_sigterm, 0, sizeof(sa_sigterm));
+    sa_sigterm.sa_handler = termsig_handler;
+    sigaction(SIGTERM, &sa_sigterm, NULL);
+
+    /*
+     * Ignore SIGPIPE
+     */ 
+    signal(SIGPIPE, SIG_IGN); 
 
     while ((c = getopt(argc, argv, "d:l:hHpv")) != -1) {
         switch (c) {
@@ -259,6 +275,27 @@ int main(int argc, char **argv)
         default:
             break;
         }
+    }
+    /*
+     * Redirect stdin to /dev/null
+     */
+    if (!freopen("/dev/null", "r", stdin)) {
+        fprintf(stderr, "stdin redirection failed\n");
+        exit(-1);
+    }
+
+    /*
+     * Redirect stdout, stderr to
+     * specified log device.
+     */
+    if (!freopen(logfile, "a+", stdout)) {
+        fprintf(stderr, "stdout redirection failed for %s\n", logfile);
+        exit(-1);
+    }
+
+    if(dup2(fileno(stdout), fileno(stderr)) < 0) {
+        fprintf(stderr, "dup2 failed for stdout\n");
+        exit(-1);
     }
 
     if (qns_server_init(server_callback) != 0) {
