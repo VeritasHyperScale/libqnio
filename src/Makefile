@@ -16,7 +16,7 @@ LIBRARY      = /usr/lib64
 
 OPTFLAGS     = $(DEBUGFLAGS)
 
-BASE_TARGET = libqnio.so
+BASE_TARGET = libvxhs.so
 BASE_SOURCES = $(shell echo lib/qnio/*.c) 
 BASE_OBJS = $(shell echo lib/qnio/*.o lib/qnio/*.d)
 BASE_OBJECTS = $(BASE_SOURCES:.c=.o)
