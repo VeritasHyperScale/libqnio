@@ -56,19 +56,21 @@ init_server_ssl_ctx()
     if (SSL_CTX_use_certificate_file(ctx, SERVER_CERT, SSL_FILETYPE_PEM) < 0) 
     {
         nioDbg("Unable to use server certificate");
+        SSL_CTX_free(ctx);
         return NULL;
     }
 
     if (SSL_CTX_use_PrivateKey_file(ctx, SERVER_KEY, SSL_FILETYPE_PEM) < 0 ) 
     {
         nioDbg("Unable to use server key file");
+        SSL_CTX_free(ctx);
         return NULL;
     }
     return ctx;
 }
 
 SSL_CTX *
-init_client_ssl_ctx(char *instanceid)
+init_client_ssl_ctx(const char *instanceid)
 {
     const SSL_METHOD *method;
     char clientkey[512] = { 0 };
@@ -110,12 +112,14 @@ init_client_ssl_ctx(char *instanceid)
     if (SSL_CTX_use_certificate_file(ctx, clientcert, SSL_FILETYPE_PEM) < 0) 
     {
         nioDbg("Unable to use client certificate");
+        SSL_CTX_free(ctx);
         return NULL;
     }
 
     if (SSL_CTX_use_PrivateKey_file(ctx, clientkey, SSL_FILETYPE_PEM) < 0 ) 
     {
         nioDbg("Unable to use server key file");
+        SSL_CTX_free(ctx);
         return NULL;
     }
     return ctx;
