@@ -719,7 +719,7 @@ qnc_driver_init(qnio_notify client_notify)
 }
 
 struct channel_driver *
-qnc_secure_driver_init(qnio_notify client_notify, char *instance)
+qnc_secure_driver_init(qnio_notify client_notify, const char *instance)
 {
     struct channel_driver *drv = NULL;
 
@@ -732,7 +732,7 @@ qnc_secure_driver_init(qnio_notify client_notify, char *instance)
     }
 
     nioDbg("Client is running in secure mode");
-    qnc_ctx->instance = instance;
+    qnc_ctx->instance = (const char *) instance;
     cmn_ctx->ssl_ctx = init_client_ssl_ctx(instance);
     return drv;
 }

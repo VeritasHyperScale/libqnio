@@ -396,7 +396,7 @@ client_callback(struct qnio_msg *msg)
 }
 
 int
-iio_init(int32_t version, iio_cb_t cb, char *instance)
+iio_init(int32_t version, iio_cb_t cb, const char *instance)
 {
     if (version <  qnio_min_version || version > qnio_max_version) {
         nioDbg("Version [%d] not supported. Supported versions[%d - %d]",

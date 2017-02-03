@@ -25,7 +25,7 @@ struct qnio_client_ctx {
     pthread_mutex_t chnl_lock;
     qnio_map *channels;
     struct qnio_client_epoll_unit ceu[MAX_CLIENT_EPOLL_UNITS];
-    char *instance;
+    const char *instance;
 };
 
 /*
@@ -49,7 +49,7 @@ struct network_channel
 };
 
 struct channel_driver* qnc_driver_init(qnio_notify client_notify);
-struct channel_driver* qnc_secure_driver_init(qnio_notify client_notify, char *instance);
+struct channel_driver* qnc_secure_driver_init(qnio_notify client_notify, const char *instance);
 extern struct qnio_client_ctx *qnc_ctx;
 
 #endif /* QNIO_CLIENT_HEADER_DEFINED */
