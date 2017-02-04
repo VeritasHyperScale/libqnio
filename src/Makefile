@@ -46,10 +46,10 @@ $(BASE_TARGET): $(BASE_OBJECTS)
 	$(CC) $(FLAGS) $(CFLAGS) $(LDFLAGS) -o $(BASE_TARGET) $(BASE_OBJECTS)
 
 $(TEST_TARGET): $(TEST_OBJECTS) $(BASE_TARGET)
-	$(CC) $(FLAGS) $(CFLAGS) -o $(TEST_TARGET) $(TEST_OBJECTS) -L. -lqnio -lssl -lcrypto
+	$(CC) $(FLAGS) $(CFLAGS) -o $(TEST_TARGET) $(TEST_OBJECTS) -L. -lvxhs -lssl -lcrypto
 
 $(TEST_CLIENT_TARGET): $(TEST_CLIENT_OBJECTS) $(BASE_TARGET)
-	$(CC) $(FLAGS) $(CFLAGS) -o $(TEST_CLIENT_TARGET) $(TEST_CLIENT_OBJECTS) -L. -lqnio -lssl -lcrypto -lrt
+	$(CC) $(FLAGS) $(CFLAGS) -o $(TEST_CLIENT_TARGET) $(TEST_CLIENT_OBJECTS) -L. -lvxhs -lssl -lcrypto -lrt
 
 clean:
 	\rm -f $(BASE_TARGET)
