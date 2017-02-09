@@ -23,14 +23,6 @@ char *hostname = "127.0.0.1";
 char *vdisk_dir = "/tmp";
 FILE *backing_file = NULL;
 
-/*
- * Dummy implementation of authorization for IO request
- */
-static int authorize(char *instance, char *device)
-{
-    return 1;
-}
-
 static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
 {
     size_t n;
@@ -133,17 +125,6 @@ void *pdispatch(void *data)
 
     if (verbose) {
         printf("In server callback for msg #%ld\n", msg->hinfo.cookie);
-    }
-
-    if (!authorize(msg->hinfo.target, msg->hinfo.instance))
-    {
-        msg->hinfo.err = QNIO_ERR_AUTHZ_FAILED; 
-        msg->recv = NULL;
-        msg->hinfo.payload_size = 0;
-        msg->hinfo.flags = QNIO_FLAG_RESP;
-        msg->hinfo.io_flags = QNIO_FLAG_RESP;
-        qns_send_resp(msg);
-        return(NULL);
     }
 
     switch (opcode) {
