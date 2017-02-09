@@ -83,7 +83,7 @@ init_client_ssl_ctx(const char *instanceid)
 
     if (access(clientkey, F_OK) != 0)
     {
-        nioDbg("Client key not found");
+        nioDbg("Client key not found %s", clientkey);
         return NULL;
     }
 

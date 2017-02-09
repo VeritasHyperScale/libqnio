@@ -28,10 +28,10 @@
 #define IO_POOL_BUF_SIZE            65536 
 #define BUF_ALIGN                   4096
 #define CRC_MODULO                  256
-#define SECURE_IMPL                 "/var/lib/libqnio/secure"
-#define SERVER_KEY                  "/var/lib/libqnio/server.key"
-#define SERVER_CERT                 "/var/lib/libqnio/server.cert"
-#define CLIENT_KEYSTORE             "/var/lib/libqnio/"
+#define SECURE_IMPL                 "/var/lib/libvxhs/secure"
+#define SERVER_KEY                  "/var/lib/libvxhs/server.key"
+#define SERVER_CERT                 "/var/lib/libvxhs/server.cert"
+#define CLIENT_KEYSTORE             "/var/lib/libvxhs/"
 
 #define QNIO_SYSCALL(expression)                   \
     ({ long int __result;                         \

@@ -43,7 +43,7 @@ open_connection(struct network_channel *netch, int flags, int euid)
     struct conn *c = NULL;
     int err;
     struct addrinfo hints, *infos = NULL;
-    SSL *ssl;
+    SSL *ssl = NULL;
 
     /* creating the client socket */
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -89,6 +89,7 @@ open_connection(struct network_channel *netch, int flags, int euid)
         SSL_set_fd(ssl, sock);
         if (SSL_connect(ssl) == -1) {
             nioDbg("ssl connect failed");
+            SSL_free(ssl);
             return (NULL);
         }
     }
@@ -163,6 +164,9 @@ out:
     }
     if(c) {
         free(c);
+    }
+    if(ssl) {
+        SSL_free(ssl);
     }
     return NULL;
 }

@@ -71,7 +71,6 @@ struct qnio_header
     uint64_t io_remote_hdl;
     uint32_t io_remote_flags;
     char target[NAME_SZ64];
-    char instance[NAME_SZ64];
 };
 
 struct qnio_msg

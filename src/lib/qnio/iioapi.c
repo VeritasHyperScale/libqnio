@@ -17,7 +17,7 @@
 #include "cJSON.h"
 #include <inttypes.h>
 
-#define VDISK_TARGET_DIR            "/var/lib/libqnio/vdisk"
+#define VDISK_TARGET_DIR            "/var/lib/libvxhs/vdisk"
 #define QNIO_QEMU_VDISK_SIZE_STR    "vdisk_size_bytes"
 #define IP_ADDR_LEN                 20
 #define SEND_RECV_SLEEP             200 /* micro seconds */
@@ -558,7 +558,6 @@ iio_readv(void *dev_handle, void *ctx_out, struct iovec *iov, int iovcnt,
     msg->hinfo.io_flags |= IOR_SOURCE_TAG_APPIO;
     msg->hinfo.flags = QNIO_FLAG_REQ_NEED_RESP;
     safe_strncpy(msg->hinfo.target, device->devid, NAME_SZ64);
-    safe_strncpy(msg->hinfo.instance, qnc_ctx->instance, NAME_SZ64);
     msg->user_ctx = ctx_out;
     msg->send = NULL;
     msg->recv = new_io_vector(1, NULL);
@@ -599,7 +598,6 @@ iio_writev(void *dev_handle, void *ctx_out, struct iovec *iov, int iovcnt,
     msg->hinfo.io_flags |= IOR_SOURCE_TAG_APPIO;
     msg->hinfo.flags = QNIO_FLAG_REQ_NEED_ACK;
     safe_strncpy(msg->hinfo.target, device->devid, NAME_SZ64);
-    safe_strncpy(msg->hinfo.instance, qnc_ctx->instance, NAME_SZ64);
     msg->user_ctx = ctx_out;
     msg->recv = NULL;
     msg->send = new_io_vector(1, NULL);
@@ -691,7 +689,6 @@ iio_ioctl_json(void *dev_handle, uint32_t opcode, char *injson,
     msg->recv = NULL;
     msg->hinfo.payload_size = data.iov_len;
     safe_strncpy(msg->hinfo.target, device->devid, NAME_SZ64);
-    safe_strncpy(msg->hinfo.instance, qnc_ctx->instance, NAME_SZ64);
     msg->user_ctx = ctx_out;
     msg->hinfo.flags = QNIO_FLAG_REQ_NEED_RESP;
     err = iio_msg_submit(device, msg, flags);
@@ -773,7 +770,6 @@ iio_check_failover_ready(struct iio_device *device)
     msg->hinfo.payload_size = 0;
     msg->recv = NULL;
     safe_strncpy(msg->hinfo.target, device->devid, NAME_SZ64);
-    safe_strncpy(msg->hinfo.instance, qnc_ctx->instance, NAME_SZ64);
     msg->user_ctx = NULL;
     msg->hinfo.flags = QNIO_FLAG_REQ_NEED_RESP | QNIO_FLAG_SYNC_REQ;
     msg->reserved = device;

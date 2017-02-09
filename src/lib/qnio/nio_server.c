@@ -340,6 +340,7 @@ qns_server_start(char *node, char *port)
 {
     qnio_error_t            err = QNIOERROR_SUCCESS;
     struct epoll_event      event;
+    struct endpoint         *ep;
     struct qnio_epoll_unit  *eu = NULL;
     int                     sfd, s, n, i;
     int                     eu_counter = 0;
@@ -430,16 +431,6 @@ qns_server_start(char *node, char *port)
                         nioDbg("Accepted connection on descriptor %d "
                                   "(host=%s, port=%s)\n", infd, hbuf, sbuf);
                     }
-                    if(cmn_ctx->ssl_ctx)
-                    {
-                        ssl = SSL_new(cmn_ctx->ssl_ctx);
-                        SSL_set_fd(ssl, infd);
-                        ret = SSL_accept(ssl);
-                        if (ret <= 0) {
-                            nioDbg("ssl accept failed %d", SSL_get_error(ssl, ret));
-                            return -1;
-                        }
-                    }
 
                     /* Make the incoming socket non-blocking and add it to the
                      *  list of fds to monitor. */
@@ -447,6 +438,42 @@ qns_server_start(char *node, char *port)
                     if (s == -1) {
                         return (-1);
                     }
+
+                    if(cmn_ctx->ssl_ctx)
+                    {
+                        ssl = SSL_new(cmn_ctx->ssl_ctx);
+                        SSL_set_fd(ssl, infd);
+                        ret = SSL_accept(ssl);
+                        if (ret <= 0) {
+                            /* Maybe try SSL_accept again */
+                            nioDbg("SSL_accept failed. Will retry");
+                            ret = SSL_get_error(ssl, ret);
+                            if (ret == SSL_ERROR_WANT_READ || ret == SSL_ERROR_WANT_WRITE) 
+                            {
+                                nioDbg("SSL_error is want read or want write %d", ret);
+                                /* put fd in epoll loop to try again */
+                                event.events = EPOLLIN;
+                                ep = (struct endpoint *) malloc(sizeof(struct endpoint));
+                                ep->sock = infd;
+                                ep->ssl = ssl;
+                                event.data.ptr = ep;
+                                s = epoll_ctl(qns_ctx->epoll_fd, EPOLL_CTL_ADD, infd, &event);
+                                if (s == -1) {
+                                    nioDbg("epoll_ctl error");
+                                    return (-1);
+                                }
+                                continue;
+                            }
+                            else
+                            {
+                                nioDbg("ssl accept failed %d", SSL_get_error(ssl, ret));
+                            
+                                SSL_free(ssl);
+                                return -1;
+                            }
+                        }
+                    }
+
                     eu = &qns_ctx->eu[eu_counter];
                     eu_counter++;
                     if(eu_counter == MAX_EPOLL_UNITS)
@@ -469,6 +496,64 @@ qns_server_start(char *node, char *port)
                     }
                 }
                 continue;
+            }
+            else if (qns_ctx->activefds[i].events & EPOLLIN)
+            {
+                int             infd;
+                int             sslerr;
+                if(!cmn_ctx->ssl_ctx)
+                {
+                    /* why did we get here? */
+                    nioDbg("Unknown error");
+                    return (-1);
+                }
+                /* complete ssl accept */
+                nioDbg("Completing ssl accept");
+                ep = (struct endpoint *)qns_ctx->activefds[i].data.ptr;
+                infd = ep->sock;
+                ssl = ep->ssl;
+                epoll_ctl(qns_ctx->epoll_fd, EPOLL_CTL_DEL,
+                          infd, &event);
+                ret = SSL_accept(ssl);
+                if (ret <= 0) {
+                    nioDbg("ssl accept failed %d", ret);
+                    /* Maybe try SSL_accept again */
+                    sslerr = SSL_get_error(ssl, ret);
+                    nioDbg("ssl error is %d", sslerr);
+                    if (sslerr == SSL_ERROR_WANT_READ || sslerr == SSL_ERROR_WANT_WRITE) 
+                    {
+                        nioDbg("ssl accept still not complete");
+                        continue;
+                    }
+                    else
+                    {
+                        nioDbg("ssl accept failed %s", ERR_error_string(ERR_get_error(), NULL));
+                        SSL_free(ssl);
+                        if (ep) free(ep);
+                        return -1;
+                    }
+                }
+
+                if (ep) free(ep);
+                eu = &qns_ctx->eu[eu_counter];
+                eu_counter++;
+                if(eu_counter == MAX_EPOLL_UNITS)
+                    eu_counter = 0;
+                event.data.fd = infd;
+                nioDbg("Adding connection to epoll unit #%d",eu_counter);
+                event.events = EPOLLIN | EPOLLRDHUP;
+                event.data.ptr = add_socket(infd, eu, ssl);
+                if(event.data.ptr == NULL) {
+                    nioDbg("qns_server_start: add_socket returned NULL");
+                    break;
+                }
+
+                s = epoll_ctl(eu->recv_epoll_fd,
+                    EPOLL_CTL_ADD, infd, &event);
+                if (s == -1) {
+                    nioDbg("qns_server_start: epoll_ctl error %d",errno);
+                    return (-1);
+                }
             }
         }
     }
