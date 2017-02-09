@@ -21,7 +21,7 @@ int verbose = 0;
 int parallel = 0;
 char *hostname = "127.0.0.1";
 char *vdisk_dir = "/tmp";
-FILE *backing_file = NULL;
+FILE *backing_file;
 
 static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
 {
@@ -37,9 +37,7 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
     safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
     bname = basename(vdisk_path_temp);
     sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
-    if (!backing_file) {
-        backing_file = fopen(vdisk_path, "r");
-    }
+    backing_file = fopen(vdisk_path, "r");
     if (!backing_file) {
         printf("Error opening file %s\n", vdisk_path);
         perror("fopen");
@@ -51,6 +49,7 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
     }
     returnd->iov_base = malloc(size);
     n = fread(returnd->iov_base, 1, size, backing_file);
+    fclose(backing_file);
 
     if (verbose) {
         printf("read %ld bytes\n", n);
@@ -80,9 +79,7 @@ static int vdisk_write(struct qnio_msg *msg)
     safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
     bname = basename(vdisk_path_temp);
     sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
-    if (!backing_file) {
-        backing_file = fopen(vdisk_path, "r");
-    }
+    backing_file = fopen(vdisk_path, "r+");
     if (!backing_file) {
         printf("Error opening file %s\n", vdisk_path);
         perror("fopen");
@@ -93,6 +90,7 @@ static int vdisk_write(struct qnio_msg *msg)
         fseek(backing_file, offset, SEEK_SET);
     }
     n = fwrite(iov.iov_base, 1, iov.iov_len, backing_file);
+    fclose(backing_file);
 
     if (verbose) {
         printf("wrote %ld bytes\n", n);
