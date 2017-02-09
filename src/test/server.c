@@ -28,13 +28,13 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
     size_t n;
     uint64_t offset;
     uint64_t size;
-    char vdisk_path_temp[NAME_SZ64] = {0};
-    char vdisk_path[NAME_SZ64] = {0};
+    char vdisk_path_temp[DIR_NAME_SZ] = {0};
+    char vdisk_path[DIR_NAME_SZ] = {0};
     char *bname;
 
     offset = msg->hinfo.io_offset;
     size = msg->hinfo.io_size;
-    safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
+    safe_strncpy(vdisk_path_temp, msg->hinfo.target, DIR_NAME_SZ);
     bname = basename(vdisk_path_temp);
     sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
     backing_file = fopen(vdisk_path, "r");
@@ -69,14 +69,14 @@ static int vdisk_write(struct qnio_msg *msg)
     size_t n;
     uint64_t offset;
     struct iovec iov;
-    char vdisk_path_temp[NAME_SZ64] = {0};
-    char vdisk_path[NAME_SZ64] = {0};
+    char vdisk_path_temp[DIR_NAME_SZ] = {0};
+    char vdisk_path[DIR_NAME_SZ] = {0};
     char *bname;
 
     offset = msg->hinfo.io_offset;
     iov = io_vector_at(msg->send, 0);
 
-    safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
+    safe_strncpy(vdisk_path_temp, msg->hinfo.target, DIR_NAME_SZ);
     bname = basename(vdisk_path_temp);
     sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
     backing_file = fopen(vdisk_path, "r+");
@@ -115,8 +115,8 @@ void *pdispatch(void *data)
     struct qnio_msg *msg = data;
     uint16_t opcode = msg->hinfo.opcode;
     uint64_t disk_size = 0;
-    char vdisk_path_temp[NAME_SZ64] = {0};
-    char vdisk_path[NAME_SZ64] = {0};
+    char vdisk_path_temp[DIR_NAME_SZ] = {0};
+    char vdisk_path[DIR_NAME_SZ] = {0};
     char *bname;
     struct stat stat;
     int fd;
@@ -128,7 +128,7 @@ void *pdispatch(void *data)
     switch (opcode) {
     case IOR_VDISK_STAT:
         ps = new_ps(0);
-        safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
+        safe_strncpy(vdisk_path_temp, msg->hinfo.target, DIR_NAME_SZ);
         bname = basename(vdisk_path_temp);
         sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
         fd = open(vdisk_path, O_RDONLY);
