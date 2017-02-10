@@ -34,11 +34,14 @@ int32_t qnio_min_version = 34;
 int32_t qnio_max_version = 34;
 struct ioapi_ctx *apictx;
 
+#define MAX_DEV_ID_SZ   256
+#define MAX_FILENAME_SZ 1024
+
 struct iio_vdisk_hostinfo *
 iio_read_hostinfo(const char *devid)
 {
     FILE *fp;
-    char filename[1024];
+    char filename[MAX_FILENAME_SZ];
     char str[256];
     char hostname[NAME_SZ64];
     char port[PORT_SZ];
@@ -46,7 +49,7 @@ iio_read_hostinfo(const char *devid)
     int match;
 
     hostinfo = (struct iio_vdisk_hostinfo *)malloc(sizeof (struct iio_vdisk_hostinfo));
-    sprintf(filename, "%s/%s.targets", VDISK_TARGET_DIR, devid);
+    snprintf(filename, MAX_FILENAME_SZ, "%s/%s.targets", VDISK_TARGET_DIR, devid);
     fp = fopen(filename, "r");
     if (!fp) {
         goto err;
@@ -463,6 +466,14 @@ iio_open(const char *uri, const char *devid, uint32_t flags)
     struct iio_vdisk_hostinfo *hostinfo;
     
     if(!uri || !devid) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    /* devid is used to compose a fixed-length filename string, so the
+     * string input size must be bounded */
+    if (strlen(devid) > MAX_DEV_ID_SZ - 1) {
+        nioDbg("device name cannot exceed %d characters\n", MAX_DEV_ID_SZ - 1);
         errno = EINVAL;
         return NULL;
     }
