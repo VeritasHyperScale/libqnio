@@ -21,7 +21,6 @@ int verbose = 0;
 int parallel = 0;
 char *hostname = "127.0.0.1";
 char *vdisk_dir = "/tmp";
-FILE *backing_file;
 
 static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
 {
@@ -31,6 +30,7 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
     char vdisk_path_temp[DIR_NAME_SZ] = {0};
     char vdisk_path[DIR_NAME_SZ] = {0};
     char *bname;
+    FILE *backing_file;
 
     offset = msg->hinfo.io_offset;
     size = msg->hinfo.io_size;
@@ -72,6 +72,7 @@ static int vdisk_write(struct qnio_msg *msg)
     char vdisk_path_temp[DIR_NAME_SZ] = {0};
     char vdisk_path[DIR_NAME_SZ] = {0};
     char *bname;
+    FILE *backing_file;
 
     offset = msg->hinfo.io_offset;
     iov = io_vector_at(msg->send, 0);
