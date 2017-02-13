@@ -36,12 +36,18 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
     size = msg->hinfo.io_size;
     safe_strncpy(vdisk_path_temp, msg->hinfo.target, DIR_NAME_SZ);
     bname = basename(vdisk_path_temp);
-    if (strlen(bname) + strlen(vdisk_dir) > DIR_NAME_SZ - 1) {
+
+    /*
+     * Account for the '/' that we are going to add between
+     * the directory and file name.
+     */
+    if (strlen(bname) + strlen(vdisk_dir) > DIR_NAME_SZ - 2) {
         fprintf(stderr, "Combined length of directory path and "
-                "filename exceeds %d.\n", DIR_NAME_SZ - 1);
+                "filename exceeds %d.\n", DIR_NAME_SZ - 2);
         exit(-1);
     }
     snprintf(vdisk_path, DIR_NAME_SZ, "%s/%s", vdisk_dir, bname);
+
     backing_file = fopen(vdisk_path, "r");
     if (!backing_file) {
         printf("Error opening file %s\n", vdisk_path);
@@ -83,12 +89,18 @@ static int vdisk_write(struct qnio_msg *msg)
 
     safe_strncpy(vdisk_path_temp, msg->hinfo.target, DIR_NAME_SZ);
     bname = basename(vdisk_path_temp);
-    if (strlen(bname) + strlen(vdisk_dir) > DIR_NAME_SZ - 1) {
+
+    /*
+     * Account for the '/' that we are going to add between
+     * the directory and file name.
+     */
+    if (strlen(bname) + strlen(vdisk_dir) > DIR_NAME_SZ - 2) {
         fprintf(stderr, "Combined length of directory path and "
-                "filename exceeds %d.\n", DIR_NAME_SZ - 1);
+                "filename exceeds %d.\n", DIR_NAME_SZ - 2);
         exit(-1);
     }
     snprintf(vdisk_path, DIR_NAME_SZ, "%s/%s", vdisk_dir, bname);
+
     backing_file = fopen(vdisk_path, "r+");
     if (!backing_file) {
         printf("Error opening file %s\n", vdisk_path);
@@ -140,12 +152,18 @@ void *pdispatch(void *data)
         ps = new_ps(0);
         safe_strncpy(vdisk_path_temp, msg->hinfo.target, DIR_NAME_SZ);
         bname = basename(vdisk_path_temp);
-        if (strlen(bname) + strlen(vdisk_dir) > DIR_NAME_SZ - 1) {
+
+        /*
+         * Account for the '/' that we are going to add between
+         * the directory and file name.
+         */
+        if (strlen(bname) + strlen(vdisk_dir) > DIR_NAME_SZ - 2) {
             fprintf(stderr, "Combined length of directory path and "
-                    "filename exceeds %d.\n", DIR_NAME_SZ - 1);
+                    "filename exceeds %d.\n", DIR_NAME_SZ - 2);
             exit(-1);
         }
         snprintf(vdisk_path, DIR_NAME_SZ, "%s/%s", vdisk_dir, bname);
+
         fd = open(vdisk_path, O_RDONLY);
         if (fd >= 0) {
             if (fstat(fd, &stat)== 0) {
