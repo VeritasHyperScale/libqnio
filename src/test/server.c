@@ -59,6 +59,7 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
         fseek(backing_file, offset, SEEK_SET);
     }
     returnd->iov_base = malloc(size);
+    memset(returnd->iov_base, 0, size);
     n = fread(returnd->iov_base, 1, size, backing_file);
     fclose(backing_file);
 
@@ -66,7 +67,7 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
         printf("read %ld bytes\n", n);
     }
 
-    returnd->iov_len = n;
+    returnd->iov_len = size;
     msg->hinfo.data_type = DATA_TYPE_RAW;
     msg->recv = new_io_vector(1, NULL);
     io_vector_pushfront(msg->recv, *returnd);
