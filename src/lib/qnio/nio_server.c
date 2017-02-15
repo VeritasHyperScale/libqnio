@@ -452,7 +452,7 @@ qns_server_start(char *node, char *port)
                             {
                                 nioDbg("SSL_error is want read or want write %d", ret);
                                 /* put fd in epoll loop to try again */
-                                event.events = EPOLLIN;
+                                event.events = EPOLLIN | EPOLLOUT;
                                 ep = (struct endpoint *) malloc(sizeof(struct endpoint));
                                 ep->sock = infd;
                                 ep->ssl = ssl;
