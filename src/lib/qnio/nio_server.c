@@ -452,7 +452,10 @@ qns_server_start(char *node, char *port)
                             {
                                 nioDbg("SSL_error is want read or want write %d", ret);
                                 /* put fd in epoll loop to try again */
-                                event.events = EPOLLIN | EPOLLOUT;
+                                if (ret == SSL_ERROR_WANT_READ)
+                                    event.events = EPOLLIN;
+                                else
+                                    event.events = EPOLLOUT;
                                 ep = (struct endpoint *) malloc(sizeof(struct endpoint));
                                 ep->sock = infd;
                                 ep->ssl = ssl;
@@ -522,6 +525,10 @@ qns_server_start(char *node, char *port)
                     nioDbg("ssl error is %d", sslerr);
                     if (sslerr == SSL_ERROR_WANT_READ || sslerr == SSL_ERROR_WANT_WRITE) 
                     {
+                        if (sslerr == SSL_ERROR_WANT_READ)
+                            qns_ctx->activefds[i].events = EPOLLIN;
+                        else
+                            qns_ctx->activefds[i].events = EPOLLOUT;
                         nioDbg("ssl accept still not complete");
                         continue;
                     }
