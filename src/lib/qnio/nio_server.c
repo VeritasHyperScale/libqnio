@@ -460,6 +460,8 @@ qns_server_start(char *node, char *port)
                                 s = epoll_ctl(qns_ctx->epoll_fd, EPOLL_CTL_ADD, infd, &event);
                                 if (s == -1) {
                                     nioDbg("epoll_ctl error");
+                                    SSL_free(ssl);
+                                    free(ep);
                                     return (-1);
                                 }
                                 continue;
@@ -512,8 +514,6 @@ qns_server_start(char *node, char *port)
                 ep = (struct endpoint *)qns_ctx->activefds[i].data.ptr;
                 infd = ep->sock;
                 ssl = ep->ssl;
-                epoll_ctl(qns_ctx->epoll_fd, EPOLL_CTL_DEL,
-                          infd, &event);
                 ret = SSL_accept(ssl);
                 if (ret <= 0) {
                     nioDbg("ssl accept failed %d", ret);
@@ -529,12 +529,13 @@ qns_server_start(char *node, char *port)
                     {
                         nioDbg("ssl accept failed %s", ERR_error_string(ERR_get_error(), NULL));
                         SSL_free(ssl);
-                        if (ep) free(ep);
+                        free(ep);
                         return -1;
                     }
                 }
-
-                if (ep) free(ep);
+                epoll_ctl(qns_ctx->epoll_fd, EPOLL_CTL_DEL,
+                          infd, &event);
+                free(ep);
                 eu = &qns_ctx->eu[eu_counter];
                 eu_counter++;
                 if(eu_counter == MAX_EPOLL_UNITS)

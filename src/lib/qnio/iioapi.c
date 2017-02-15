@@ -67,7 +67,7 @@ iio_read_hostinfo(const char *devid)
             continue;
         }
         nioDbg("iio_read_hostinfo: %s\n", str);
-        strncpy(hostinfo->hosts[hostinfo->nhosts], str, NAME_SZ);
+        safe_strncpy(hostinfo->hosts[hostinfo->nhosts], str, NAME_SZ);
         hostinfo->nhosts ++;
     }
     fclose(fp);
@@ -492,7 +492,7 @@ iio_open(const char *uri, const char *devid, uint32_t flags)
     if (hostinfo == NULL) {
         nioDbg("Unable to read the host information for device %s\n", devid);
         hostinfo = (struct iio_vdisk_hostinfo *)malloc(sizeof (struct iio_vdisk_hostinfo));
-        strncpy(hostinfo->hosts[0], uri, NAME_SZ);
+        safe_strncpy(hostinfo->hosts[0], uri, NAME_SZ);
         hostinfo->nhosts = 1;
         hostinfo->failover_idx = 0;
     }
