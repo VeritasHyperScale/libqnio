@@ -62,7 +62,16 @@ typedef void (*iio_cb_t) (void *ctx, uint32_t opcode, uint32_t error);
  *     Intilize the library state. This should be called at the
  *     begining before issuing any library call.
  */
-int iio_init(int32_t version, iio_cb_t cb);
+int iio_init(int32_t version, iio_cb_t cb, const char *instance);
+
+/*
+ * RETURNS:
+ *     void
+ * DESCRIPTION:
+ *     Relinquish library resources. This should be called on the
+ *     close of last open device.
+ */
+void iio_fini(void);
 
 /*
  * DESCRIPTION:

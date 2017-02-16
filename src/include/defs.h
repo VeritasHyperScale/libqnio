@@ -30,6 +30,8 @@
 #include <signal.h>
 #include <errno.h>
 #include <sys/eventfd.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #include "types.h"
 #include "datastruct.h"

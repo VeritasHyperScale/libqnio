@@ -11,6 +11,7 @@
 #define QNIO_ERR_SUCCESS               0
 #define QNIO_ERR_CHAN_EXISTS           1
 #define QNIO_ERR_CHAN_CREATE_FAILED    2
+#define QNIO_ERR_AUTHZ_FAILED          3
 
 #define MSG_POOL_SIZE               4096 
 

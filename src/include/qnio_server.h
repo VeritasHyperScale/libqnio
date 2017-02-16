@@ -1,6 +1,8 @@
 #ifndef QNIO_SERVER_HEADER_DEFINED
 #define QNIO_SERVER_HEADER_DEFINED
 
+#include <openssl/ssl.h>
+
 #define MAX_EPOLL_UNITS             16 
 #define QNIO_DEFAULT_PORT           "9999"
 

@@ -17,7 +17,7 @@
 #include "cJSON.h"
 #include <inttypes.h>
 
-#define VDISK_TARGET_DIR            "/var/libqnio/vdisk"
+#define VDISK_TARGET_DIR            "/var/lib/libvxhs/vdisk"
 #define QNIO_QEMU_VDISK_SIZE_STR    "vdisk_size_bytes"
 #define IP_ADDR_LEN                 20
 #define SEND_RECV_SLEEP             200 /* micro seconds */
@@ -34,11 +34,14 @@ int32_t qnio_min_version = 34;
 int32_t qnio_max_version = 34;
 struct ioapi_ctx *apictx;
 
+#define MAX_DEV_ID_SZ   256
+#define MAX_FILENAME_SZ 1024
+
 struct iio_vdisk_hostinfo *
 iio_read_hostinfo(const char *devid)
 {
     FILE *fp;
-    char filename[1024];
+    char filename[MAX_FILENAME_SZ];
     char str[256];
     char hostname[NAME_SZ64];
     char port[PORT_SZ];
@@ -46,7 +49,7 @@ iio_read_hostinfo(const char *devid)
     int match;
 
     hostinfo = (struct iio_vdisk_hostinfo *)malloc(sizeof (struct iio_vdisk_hostinfo));
-    sprintf(filename, "%s/%s.targets", VDISK_TARGET_DIR, devid);
+    snprintf(filename, MAX_FILENAME_SZ, "%s/%s.targets", VDISK_TARGET_DIR, devid);
     fp = fopen(filename, "r");
     if (!fp) {
         goto err;
@@ -64,7 +67,7 @@ iio_read_hostinfo(const char *devid)
             continue;
         }
         nioDbg("iio_read_hostinfo: %s\n", str);
-        strncpy(hostinfo->hosts[hostinfo->nhosts], str, NAME_SZ);
+        safe_strncpy(hostinfo->hosts[hostinfo->nhosts], str, NAME_SZ);
         hostinfo->nhosts ++;
     }
     fclose(fp);
@@ -396,7 +399,7 @@ client_callback(struct qnio_msg *msg)
 }
 
 int
-iio_init(int32_t version, iio_cb_t cb)
+iio_init(int32_t version, iio_cb_t cb, const char *instance)
 {
     if (version <  qnio_min_version || version > qnio_max_version) {
         nioDbg("Version [%d] not supported. Supported versions[%d - %d]",
@@ -416,7 +419,7 @@ iio_init(int32_t version, iio_cb_t cb)
     memset(apictx, 0, sizeof (struct ioapi_ctx));
     pthread_mutex_init(&apictx->dev_lock, NULL);
     apictx->io_cb = cb;
-    apictx->network_driver = qnc_driver_init(client_callback);
+    apictx->network_driver = qnc_secure_driver_init(client_callback, instance);
     nioDbg("Created API context.\n");
     return 0;
 }
@@ -467,6 +470,14 @@ iio_open(const char *uri, const char *devid, uint32_t flags)
         return NULL;
     }
 
+    /* devid is used to compose a fixed-length filename string, so the
+     * string input size must be bounded */
+    if (strlen(devid) > MAX_DEV_ID_SZ - 1) {
+        nioDbg("device name cannot exceed %d characters\n", MAX_DEV_ID_SZ - 1);
+        errno = EINVAL;
+        return NULL;
+    }
+
     pthread_mutex_lock(&apictx->dev_lock);
     if (apictx->ndevices) {
         device = qnio_map_find(apictx->devices, devid);
@@ -481,7 +492,7 @@ iio_open(const char *uri, const char *devid, uint32_t flags)
     if (hostinfo == NULL) {
         nioDbg("Unable to read the host information for device %s\n", devid);
         hostinfo = (struct iio_vdisk_hostinfo *)malloc(sizeof (struct iio_vdisk_hostinfo));
-        strncpy(hostinfo->hosts[hostinfo->nhosts], uri, NAME_SZ);
+        safe_strncpy(hostinfo->hosts[0], uri, NAME_SZ);
         hostinfo->nhosts = 1;
         hostinfo->failover_idx = 0;
     }
@@ -605,7 +616,7 @@ iio_writev(void *dev_handle, void *ctx_out, struct iovec *iov, int iovcnt,
         io_vector_pushback(msg->send, iov[i]);
     }
     if (io_vector_size(msg->send) != size) {
-        nioDbg("Mismatch of vector size and I/O size");
+        nioDbg("Mismatch of vector size and I/O size %d", io_vector_size(msg->send));
         iio_message_free(msg);
         errno = EIO;
         return -1;    

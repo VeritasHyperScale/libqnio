@@ -21,22 +21,33 @@ int verbose = 0;
 int parallel = 0;
 char *hostname = "127.0.0.1";
 char *vdisk_dir = "/tmp";
-FILE *backing_file;
 
 static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
 {
     size_t n;
     uint64_t offset;
     uint64_t size;
-    char vdisk_path_temp[NAME_SZ64] = {0};
-    char vdisk_path[NAME_SZ64] = {0};
+    char vdisk_path_temp[DIR_NAME_SZ] = {0};
+    char vdisk_path[DIR_NAME_SZ] = {0};
     char *bname;
+    FILE *backing_file;
 
     offset = msg->hinfo.io_offset;
     size = msg->hinfo.io_size;
-    safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
+    safe_strncpy(vdisk_path_temp, msg->hinfo.target, DIR_NAME_SZ);
     bname = basename(vdisk_path_temp);
-    sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
+
+    /*
+     * Account for the '/' that we are going to add between
+     * the directory and file name.
+     */
+    if (strlen(bname) + strlen(vdisk_dir) > DIR_NAME_SZ - 2) {
+        fprintf(stderr, "Combined length of directory path and "
+                "filename exceeds %d.\n", DIR_NAME_SZ - 2);
+        exit(-1);
+    }
+    snprintf(vdisk_path, DIR_NAME_SZ, "%s/%s", vdisk_dir, bname);
+
     backing_file = fopen(vdisk_path, "r");
     if (!backing_file) {
         printf("Error opening file %s\n", vdisk_path);
@@ -48,6 +59,7 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
         fseek(backing_file, offset, SEEK_SET);
     }
     returnd->iov_base = malloc(size);
+    memset(returnd->iov_base, 0, size);
     n = fread(returnd->iov_base, 1, size, backing_file);
     fclose(backing_file);
 
@@ -55,7 +67,7 @@ static int vdisk_read(struct qnio_msg *msg, struct iovec *returnd)
         printf("read %ld bytes\n", n);
     }
 
-    returnd->iov_len = n;
+    returnd->iov_len = size;
     msg->hinfo.data_type = DATA_TYPE_RAW;
     msg->recv = new_io_vector(1, NULL);
     io_vector_pushfront(msg->recv, *returnd);
@@ -69,16 +81,28 @@ static int vdisk_write(struct qnio_msg *msg)
     size_t n;
     uint64_t offset;
     struct iovec iov;
-    char vdisk_path_temp[NAME_SZ64] = {0};
-    char vdisk_path[NAME_SZ64] = {0};
+    char vdisk_path_temp[DIR_NAME_SZ] = {0};
+    char vdisk_path[DIR_NAME_SZ] = {0};
     char *bname;
+    FILE *backing_file;
 
     offset = msg->hinfo.io_offset;
     iov = io_vector_at(msg->send, 0);
 
-    safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
+    safe_strncpy(vdisk_path_temp, msg->hinfo.target, DIR_NAME_SZ);
     bname = basename(vdisk_path_temp);
-    sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
+
+    /*
+     * Account for the '/' that we are going to add between
+     * the directory and file name.
+     */
+    if (strlen(bname) + strlen(vdisk_dir) > DIR_NAME_SZ - 2) {
+        fprintf(stderr, "Combined length of directory path and "
+                "filename exceeds %d.\n", DIR_NAME_SZ - 2);
+        exit(-1);
+    }
+    snprintf(vdisk_path, DIR_NAME_SZ, "%s/%s", vdisk_dir, bname);
+
     backing_file = fopen(vdisk_path, "r+");
     if (!backing_file) {
         printf("Error opening file %s\n", vdisk_path);
@@ -115,8 +139,8 @@ void *pdispatch(void *data)
     struct qnio_msg *msg = data;
     uint16_t opcode = msg->hinfo.opcode;
     uint64_t disk_size = 0;
-    char vdisk_path_temp[NAME_SZ64] = {0};
-    char vdisk_path[NAME_SZ64] = {0};
+    char vdisk_path_temp[DIR_NAME_SZ] = {0};
+    char vdisk_path[DIR_NAME_SZ] = {0};
     char *bname;
     struct stat stat;
     int fd;
@@ -128,9 +152,20 @@ void *pdispatch(void *data)
     switch (opcode) {
     case IOR_VDISK_STAT:
         ps = new_ps(0);
-        safe_strncpy(vdisk_path_temp, msg->hinfo.target, NAME_SZ64);
+        safe_strncpy(vdisk_path_temp, msg->hinfo.target, DIR_NAME_SZ);
         bname = basename(vdisk_path_temp);
-        sprintf(vdisk_path, "%s/%s", vdisk_dir, bname);
+
+        /*
+         * Account for the '/' that we are going to add between
+         * the directory and file name.
+         */
+        if (strlen(bname) + strlen(vdisk_dir) > DIR_NAME_SZ - 2) {
+            fprintf(stderr, "Combined length of directory path and "
+                    "filename exceeds %d.\n", DIR_NAME_SZ - 2);
+            exit(-1);
+        }
+        snprintf(vdisk_path, DIR_NAME_SZ, "%s/%s", vdisk_dir, bname);
+
         fd = open(vdisk_path, O_RDONLY);
         if (fd >= 0) {
             if (fstat(fd, &stat)== 0) {
@@ -203,9 +238,9 @@ void
 usage()
 {
     printf("Usage: qnio_server [-d <directory>] [-l <logfile>] [-p] [-v] [-h] \n"
-            "\t d -> Vdisk directory\n"
-            "\t l -> log file\n"
-            "\t p -> Run commands in separate thread\n"
+            "\t d -> Directory where the backing file for volume is created\n"
+            "\t l -> Log file\n"
+            "\t p -> Parallelize IO dispatch\n"
             "\t h -> Help\n"
             "\t v -> Verbose\n");
 }
@@ -255,7 +290,6 @@ int main(int argc, char **argv)
             break;
         }
     }
-
     /*
      * Redirect stdin to /dev/null
      */
