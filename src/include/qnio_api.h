@@ -65,6 +65,15 @@ typedef void (*iio_cb_t) (void *ctx, uint32_t opcode, uint32_t error);
 int iio_init(int32_t version, iio_cb_t cb, const char *instance);
 
 /*
+ * RETURNS:
+ *     void
+ * DESCRIPTION:
+ *     Relinquish library resources. This should be called on the
+ *     close of last open device.
+ */
+void iio_fini(void);
+
+/*
  * DESCRIPTION:
  *     Returns minimum QNIO API version supported by library.
  */
