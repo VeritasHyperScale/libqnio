@@ -4,6 +4,7 @@ MAKEFILE = Makefile
 SHELL = /bin/sh
 CC    = gcc
 
+DESTDIR      ?=
 CPPFLAGS     = -Iinclude
 CFLAGS       = -fPIC -fno-strict-aliasing -Wall -Werror -g -pthread
 DEPFLAGS     = -MMD -MP -MT $@ -MF $(@D)/$(*F).d
@@ -60,14 +61,16 @@ clean:
 	\rm -f $(TEST_CLIENT_OBJS)
 
 install: all
-	mkdir -p $(HEADERS) || exit
-	cp -f include/qnio_api.h $(HEADERS)/qnio_api.h
-	cp -f $(BASE_TARGET) $(LIBRARY)/$(BASE_TARGET)
-	cp -f $(TEST_TARGET) ${TEST_TARGET_DIR}/$(TEST_TARGET)
-	cp -f $(TEST_CLIENT_TARGET) ${TEST_TARGET_DIR}/$(TEST_CLIENT_TARGET)
+	mkdir -p $(DESTDIR)$(HEADERS) || exit
+	mkdir -p $(DESTDIR)$(LIBRARY) || exit
+	mkdir -p $(DESTDIR)$(TEST_TARGET_DIR) || exit
+	cp -f include/qnio_api.h $(DESTDIR)$(HEADERS)/qnio_api.h
+	cp -f $(BASE_TARGET) $(DESTDIR)$(LIBRARY)/$(BASE_TARGET)
+	cp -f $(TEST_TARGET) $(DESTDIR)${TEST_TARGET_DIR}/$(TEST_TARGET)
+	cp -f $(TEST_CLIENT_TARGET) $(DESTDIR)${TEST_TARGET_DIR}/$(TEST_CLIENT_TARGET)
 
 uninstall:
-	rm -f $(HEADERS)/qnio_api.h
-	rm -f $(LIBRARY)/$(BASE_TARGET)
-	rm -f ${TEST_TARGET_DIR}/$(TEST_TARGET)
-	rm -f ${TEST_TARGET_DIR}/$(TEST_CLIENT_TARGET)
+	rm -f $(DESTDIR)$(HEADERS)/qnio_api.h
+	rm -f $(DESTDIR)$(LIBRARY)/$(BASE_TARGET)
+	rm -f $(DESTDIR)${TEST_TARGET_DIR}/$(TEST_TARGET)
+	rm -f $(DESTDIR)${TEST_TARGET_DIR}/$(TEST_CLIENT_TARGET)
