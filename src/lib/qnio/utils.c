@@ -28,7 +28,9 @@ init_server_ssl_ctx()
     const SSL_METHOD *method;
     SSL_CTX *ctx = NULL;
 
-    nioDbg("initializing server ssl ctx %s\n", SERVER_KEY);
+    nioDbg("initializing server ssl ctx with key %s, cert %s\n",
+           SERVER_KEY, SERVER_CERT);
+
     if (access(SERVER_KEY, F_OK) != 0)
     {
         nioDbg("Server key not found");
@@ -69,27 +71,27 @@ init_server_ssl_ctx()
     return ctx;
 }
 
+/*
+ * None of the arguments can be NULL
+ */
 SSL_CTX *
-init_client_ssl_ctx(const char *instanceid)
+init_client_ssl_ctx(const char *cacert, const char *clientkey,
+             const char *clientcert)
 {
     const SSL_METHOD *method;
-    char clientkey[512] = { 0 };
-    char clientcert[512] = { 0 };
     SSL_CTX *ctx = NULL;
 
-    strcpy(clientkey, CLIENT_KEYSTORE);
-    strncat(clientkey, instanceid, 64);
-    strncat(clientkey, ".key", 4);
+    if ( !cacert || !clientkey || !clientcert)
+    {
+        nioDbg("cacert, client_key, and client_cert cannot be NULL");
+        return NULL;
+    }
 
     if (access(clientkey, F_OK) != 0)
     {
         nioDbg("Client key not found %s", clientkey);
         return NULL;
     }
-
-    strcpy(clientcert, CLIENT_KEYSTORE);
-    strncat(clientcert, instanceid, 64);
-    strncat(clientcert, ".cert", 5);
 
     if (access(clientcert, F_OK) != 0)
     {

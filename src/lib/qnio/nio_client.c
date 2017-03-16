@@ -83,9 +83,12 @@ open_connection(struct network_channel *netch, int flags, int euid)
         goto out;
     }
 
-    if(cmn_ctx->ssl_ctx)
+    /*
+     * Use channel SSL context to set up individual connections
+     */
+    if(netch->channel.ssl_ctx)
     {
-        ssl = SSL_new(cmn_ctx->ssl_ctx);
+        ssl = SSL_new(netch->channel.ssl_ctx);
         SSL_set_fd(ssl, sock);
         if (SSL_connect(ssl) == -1) {
             nioDbg("ssl connect failed");
@@ -124,7 +127,7 @@ open_connection(struct network_channel *netch, int flags, int euid)
     c->ns.sock = sock;
     c->ns.flags = FLAG_DONT_CLOSE;
 
-    if (cmn_ctx->ssl_ctx)
+    if (netch->channel.ssl_ctx)
     {
         c->ns.ssl = ssl;
         c->ns.io_class = &io_ssl;
@@ -553,10 +556,14 @@ send_on_connection(struct qnio_msg *msg, struct conn *c)
 }
 
 struct channel *
-qnc_channel_open(void *channel_arg)
+qnc_channel_open(void *channel_arg, const char *cacert, const char *client_key,
+                 const char *client_cert)
+
 {
     struct network_channel_arg *nc_arg;
     struct network_channel *netch;
+    struct channel *channel;
+    SSL_CTX *ssl_ctx = NULL;
     int ret;
 
     nc_arg = (struct network_channel_arg *)channel_arg;
@@ -571,9 +578,26 @@ qnc_channel_open(void *channel_arg)
     }
     netch = qnio_map_find(qnc_ctx->channels, nc_arg->host);
     if (netch) {
+        nioDbg("Channel already exists");
+
+        /* Now check if the SSL creds passed for the new open match
+         * the existing channel. Return error if they don't match.
+         */
+        channel = &netch->channel;
+        if (cacert || client_key || client_cert) {
+            if (strcmp(channel->cacert, cacert) != 0 ||
+                strcmp(channel->client_key, client_key) ||
+                strcmp(channel->client_cert, client_cert))
+            {
+                nioDbg("Error - Attempt to open channel to same host with "
+                       "different SSL credentials");
+                pthread_mutex_unlock(&qnc_ctx->chnl_lock);
+                return NULL;
+            }
+        }
+
         netch->refcount ++;
         pthread_mutex_unlock(&qnc_ctx->chnl_lock);
-        nioDbg("Channel already exists");
         if (ck_pr_load_int(&netch->flags) & CHAN_DISCONNECTED) {
             pthread_mutex_lock(&netch->conn_lock);
             ret = reconnect_channel(netch);
@@ -590,6 +614,37 @@ qnc_channel_open(void *channel_arg)
 
     netch = (struct network_channel *)malloc(sizeof (struct network_channel));
     memset(netch, 0, sizeof (struct network_channel));
+    channel = &netch->channel;
+
+    /*
+     * Initialize SSL context for the new channel based on the certs and keys
+     * passed by the user.
+     */
+    if (!is_secure()) {
+        nioDbg("Client is running in unsecure mode");
+        channel->cacert = NULL;
+        channel->client_key = NULL;
+        channel->client_cert = NULL;
+        channel->ssl_ctx = NULL;
+    } else {
+        nioDbg("Client is running in secure mode");
+        ssl_ctx = init_client_ssl_ctx(cacert, client_key, client_cert);
+        if (!ssl_ctx) {
+            nioDbg("Failed to setup SSL context for the new channel!!!");
+            errno = ENXIO;
+            goto err;
+        }
+        nioDbg("Successfully setup SSL context for the new channel");
+
+        /*
+         * Copy SSL related stuff for the new channel
+         */
+        channel->cacert = strdup(cacert);
+        channel->client_key = strdup(client_key);
+        channel->client_cert = strdup(client_cert);
+        channel->ssl_ctx = ssl_ctx;
+    }
+
     netch->channel.cd = &qnc_ctx->drv;
     netch->refcount = 1;
     safe_strncpy(netch->name, nc_arg->host, NAME_SZ64);
@@ -599,6 +654,7 @@ qnc_channel_open(void *channel_arg)
         nioDbg("Failed to open connection");
         goto err;
     }
+
     qnio_map_insert(qnc_ctx->channels, netch->name, (struct network_channel *)netch);
     qnc_ctx->nchannel++;
     pthread_mutex_unlock(&qnc_ctx->chnl_lock);
@@ -636,6 +692,15 @@ qnc_channel_close(struct channel *channel)
             netch->conn[i] = NULL;
         }
     }
+
+    /*
+     * Free the SSL related network_channel members
+     */
+    free(channel->cacert);
+    free(channel->client_key);
+    free(channel->client_cert);
+    free(channel->ssl_ctx);
+
     qnio_map_delete(qnc_ctx->channels, netch->name);
     free(netch);
     qnc_ctx->nchannel --;
@@ -729,14 +794,6 @@ qnc_secure_driver_init(qnio_notify client_notify, const char *instance)
 
     drv = qnc_driver_init(client_notify);
     qnc_ctx->instance = (const char *) instance;
-    if (!is_secure())
-    {
-        nioDbg("Client is running in unsecure mode");
-        cmn_ctx->ssl_ctx = NULL;
-        return drv;
-    }
 
-    nioDbg("Client is running in secure mode");
-    cmn_ctx->ssl_ctx = init_client_ssl_ctx(instance);
     return drv;
 }

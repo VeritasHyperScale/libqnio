@@ -15,6 +15,7 @@
 
 static struct qnio_server_ctx *qns_ctx;
 static struct qnio_common_ctx *cmn_ctx;
+SSL_CTX *ssl_ctx;
 
 static void
 disconnect(struct conn *c)
@@ -142,7 +143,7 @@ add_socket(int sock, struct qnio_epoll_unit *eu, SSL *ssl)
         safe_fifo_init(&c->fifo_q);
         c->ns.io_class = &io_socket;
         c->ns.sock = sock;
-        if (cmn_ctx->ssl_ctx)
+        if (ssl_ctx)
         {
             c->ns.ssl = ssl;
             c->ns.io_class = &io_ssl;
@@ -183,17 +184,14 @@ qns_server_init(qnio_notify server_notify)
         err = -1;
     }
 
-    if (is_secure())
-    {
+    if (is_secure()) {
         nioDbg("Server impl is secure");
-        cmn_ctx->ssl_ctx = init_server_ssl_ctx();
-    }
-    else
-    {
-        cmn_ctx->ssl_ctx = NULL;
+        ssl_ctx = init_server_ssl_ctx();
+    } else {
+        ssl_ctx = NULL;
     }
 
-    for(i=0;i<MAX_EPOLL_UNITS;i++) {
+    for(i=0; i<MAX_EPOLL_UNITS; i++) {
         qns_ctx->eu[i].send_activefds = calloc(MAXFDS, sizeof (struct epoll_event));
         qns_ctx->eu[i].recv_activefds = calloc(MAXFDS, sizeof (struct epoll_event));
 
@@ -439,9 +437,9 @@ qns_server_start(char *node, char *port)
                         return (-1);
                     }
 
-                    if(cmn_ctx->ssl_ctx)
+                    if(ssl_ctx)
                     {
-                        ssl = SSL_new(cmn_ctx->ssl_ctx);
+                        ssl = SSL_new(ssl_ctx);
                         SSL_set_fd(ssl, infd);
                         ret = SSL_accept(ssl);
                         if (ret <= 0) {
@@ -506,7 +504,7 @@ qns_server_start(char *node, char *port)
             {
                 int             infd;
                 int             sslerr;
-                if(!cmn_ctx->ssl_ctx)
+                if(!ssl_ctx)
                 {
                     /* why did we get here? */
                     nioDbg("Unknown error");

@@ -48,7 +48,6 @@ struct qnio_common_ctx {
     enum qnio_mode mode;
     uint64_t in, out; /* IN/OUT traffic counters */
     qnio_notify notify;
-    SSL_CTX *ssl_ctx;
 };
 
 enum NSReadState { /* Network stream read state */

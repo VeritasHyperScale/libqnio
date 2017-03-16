@@ -100,7 +100,9 @@ int32_t iio_max_version(void);
  *        EBADF  - Unable to open communication channel.
  *        EBUSY  - The call cannot be completed right now
  */
-void *iio_open(const char *uri, const char *devid, uint32_t flags);
+void *iio_open(const char *uri, const char *devid, uint32_t flags,
+               const char *cacert, const char *client_key,
+               const char *client_cert);
 
 /*
  * Close the device.

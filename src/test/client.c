@@ -19,6 +19,14 @@
 
 #define BILLION                     1E9
 
+/*
+ * Please ensure the following per-device certs are installed
+ * for secure SSL testing
+ */
+#define CLIENT_KEY                  "/var/lib/libvxhs/testdevice.key"
+#define CLIENT_CERT                 "/var/lib/libvxhs/testdevice.pem"
+#define CACERT                      "/var/lib/libvxhs/cacert.pem"
+
 /* global variables */
 int iops = 10;
 int iosize = 8192;
@@ -124,7 +132,8 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    handle = iio_open("of://localhost:9999", target, 0); 
+    handle = iio_open("of://localhost:9999", target, 0, CACERT,
+                      CLIENT_KEY, CLIENT_CERT); 
     if (handle == NULL)
     {
         printf("Device open failed\n");

@@ -84,7 +84,8 @@ err:
 }
 
 static struct channel *
-iio_channel_open(const char *uri)
+iio_channel_open(const char *uri, const char *cacert, const char *client_key,
+                 const char *client_cert)
 {
     struct network_channel_arg nc_arg;
     struct channel *channel;
@@ -95,8 +96,14 @@ iio_channel_open(const char *uri)
         nioDbg("parse uri failed [%s] match=%d", uri, match);
         return NULL;
     }
-    nioDbg("iio_open: uri=%s, host=%s, port=%s\n", uri, nc_arg.host, nc_arg.port);
-    channel = apictx->network_driver->chdrv_open(&nc_arg);
+
+    nioDbg("iio_open: uri=%s, host=%s, port=%s\n", uri, nc_arg.host,
+           nc_arg.port);
+    nioDbg("iio_channel_open: cacert=%s, client_key=%s, client_cert=%s\n",
+           cacert, client_key, client_cert);
+
+    channel = apictx->network_driver->chdrv_open(&nc_arg, cacert, client_key,
+                                                 client_cert);
     if (!channel) {
         errno = EBADF;
         return NULL;
@@ -161,7 +168,10 @@ retry_nexthost:
     /*
      * Open channel to the new host
      */
-    new_channel = iio_channel_open(hostinfo->hosts[hostinfo->failover_idx]);
+    new_channel = iio_channel_open(hostinfo->hosts[hostinfo->failover_idx],
+                                   device->channel->cacert,
+                                   device->channel->client_key,
+                                   device->channel->client_cert);
     if (new_channel == NULL) {
         time(&end_t);
         diff_t = difftime(end_t, start_t);
@@ -459,7 +469,9 @@ iio_stop()
 }
 
 void *
-iio_open(const char *uri, const char *devid, uint32_t flags)
+iio_open(const char *uri, const char *devid, uint32_t flags,
+         const char *cacert, const char *client_key,
+         const char *client_cert)
 {
     struct channel *channel;
     struct iio_device *device;
@@ -471,7 +483,8 @@ iio_open(const char *uri, const char *devid, uint32_t flags)
     }
 
     /* devid is used to compose a fixed-length filename string, so the
-     * string input size must be bounded */
+     * string input size must be bounded
+     */
     if (strlen(devid) > MAX_DEV_ID_SZ - 1) {
         nioDbg("device name cannot exceed %d characters\n", MAX_DEV_ID_SZ - 1);
         errno = EINVAL;
@@ -497,7 +510,14 @@ iio_open(const char *uri, const char *devid, uint32_t flags)
         hostinfo->failover_idx = 0;
     }
 
-    channel = iio_channel_open(hostinfo->hosts[0]);
+    /*
+     * Pass the SSL creds to channel open. These will be used either to
+     * (1) If opening channel to a host for the first time - Use the user supplied
+     *     certs and keys to set up a secure connection to the host.
+     * (2) If the channel to host is already open - Verify that the new open
+     *     is using matching creds.
+     */
+    channel = iio_channel_open(hostinfo->hosts[0], cacert, client_key, client_cert);
     if (channel == NULL) {
         pthread_mutex_unlock(&apictx->dev_lock);
         free(hostinfo);

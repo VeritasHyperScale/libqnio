@@ -17,7 +17,8 @@ char *safe_strncpy(char *dest, const char *src, size_t n);
 int compare_key(const void *x, const void *y);
 int compare_int(const void *x, const void *y);
 SSL_CTX *init_server_ssl_ctx(void); 
-SSL_CTX *init_client_ssl_ctx(const char *instanceid); 
+SSL_CTX *init_client_ssl_ctx(const char *cacert, const char *client_key,
+                      const char *client_cert); 
 int is_secure(); 
 
 #endif /* UTILS_HEADER_DEFINED */
