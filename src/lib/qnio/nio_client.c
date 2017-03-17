@@ -584,7 +584,7 @@ qnc_channel_open(void *channel_arg, const char *cacert, const char *client_key,
          * the existing channel. Return error if they don't match.
          */
         channel = &netch->channel;
-        if (cacert || client_key || client_cert) {
+        if (channel->ssl_ctx && (cacert || client_key || client_cert)) {
             if (strcmp(channel->cacert, cacert) != 0 ||
                 strcmp(channel->client_key, client_key) ||
                 strcmp(channel->client_cert, client_cert))

@@ -87,6 +87,12 @@ init_client_ssl_ctx(const char *cacert, const char *clientkey,
         return NULL;
     }
 
+    if (access(cacert, F_OK) != 0)
+    {
+        nioDbg("cacert not found %s", cacert);
+        return NULL;
+    }
+
     if (access(clientkey, F_OK) != 0)
     {
         nioDbg("Client key not found %s", clientkey);

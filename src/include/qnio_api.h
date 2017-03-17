@@ -90,6 +90,9 @@ int32_t iio_max_version(void);
  *    uri - const string of the format of://<hostname|ip>:port
  *    devid - Device ID.
  *    flags - currently unused, this must be set to 0
+ *    cacert - CA certificates file in PEM format
+ *    client_key - Client private key file in PEM format
+ *    client_cert - Client certificate file in PEM format
  * RETURNS:
  *    opeque device handle on success, NULL on failure.
  * DESCRIPTION:
