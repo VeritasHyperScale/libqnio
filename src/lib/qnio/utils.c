@@ -118,12 +118,20 @@ init_client_ssl_ctx(const char *cacert, const char *clientkey,
         return NULL;
     }
 
-    if (SSL_CTX_use_PrivateKey_file(ctx, clientkey, SSL_FILETYPE_PEM) < 0 ) 
+    if (SSL_CTX_use_PrivateKey_file(ctx, clientkey, SSL_FILETYPE_PEM) < 0) 
     {
-        nioDbg("Unable to use server key file");
+        nioDbg("Unable to use client key file");
         SSL_CTX_free(ctx);
         return NULL;
     }
+
+    if (SSL_CTX_load_verify_locations(ctx, cacert, NULL) < 0)
+    {
+        nioDbg("Unable to use client cacert file");
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+
     return ctx;
 }
 
