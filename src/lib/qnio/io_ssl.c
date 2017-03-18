@@ -28,15 +28,27 @@ write_ssl(struct endpoint *endpoint, const void *buf, size_t len)
 static int
 readv_ssl(struct endpoint *endpoint, struct iovec *vec, int count) 
 {
+    int i, total_count = 0;
+
     assert(endpoint->ssl != NULL);
-    return (SSL_read(endpoint->ssl, vec[0].iov_base, vec[0].iov_len));
+    for (i=0; i<count; i++) {
+        total_count += SSL_read(endpoint->ssl, vec[i].iov_base,
+                                vec[i].iov_len);
+    }
+    return total_count;
 }
 
 static int
 writev_ssl(struct endpoint *endpoint, struct iovec *vec, int count)
 {
+    int i, total_count = 0;
+
     assert(endpoint->ssl != NULL);
-    return (SSL_write(endpoint->ssl, vec[0].iov_base, vec[0].iov_len));
+    for (i=0; i<count; i++) {
+        total_count += SSL_write(endpoint->ssl, vec[i].iov_base,
+                                 vec[i].iov_len);
+    }
+    return total_count;
 }
 
 
