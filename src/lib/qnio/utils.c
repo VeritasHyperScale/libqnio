@@ -70,12 +70,6 @@ init_client_ssl_ctx(const char *cacert, const char *clientkey,
     const SSL_METHOD *method;
     SSL_CTX *ctx = NULL;
 
-    if ( !cacert || !clientkey || !clientcert)
-    {
-        nioDbg("cacert, client_key, and client_cert cannot be NULL");
-        return NULL;
-    }
-
     if (access(cacert, F_OK) != 0)
     {
         nioDbg("cacert not found %s", cacert);

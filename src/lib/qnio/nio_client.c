@@ -621,6 +621,7 @@ qnc_channel_open(void *channel_arg, const char *cacert, const char *client_key,
         {
             nioDbg("Secure mode can only be enabled when cacert, client_key,"
                    " and client_cert are all specified");
+            pthread_mutex_unlock(&qnc_ctx->chnl_lock);
             return NULL;
         }
     }
