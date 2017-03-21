@@ -90,6 +90,9 @@ int32_t iio_max_version(void);
  *    uri - const string of the format of://<hostname|ip>:port
  *    devid - Device ID.
  *    flags - currently unused, this must be set to 0
+ *    cacert - CA certificates file in PEM format
+ *    client_key - Client private key file in PEM format
+ *    client_cert - Client certificate file in PEM format
  * RETURNS:
  *    opeque device handle on success, NULL on failure.
  * DESCRIPTION:
@@ -100,7 +103,9 @@ int32_t iio_max_version(void);
  *        EBADF  - Unable to open communication channel.
  *        EBUSY  - The call cannot be completed right now
  */
-void *iio_open(const char *uri, const char *devid, uint32_t flags);
+void *iio_open(const char *uri, const char *devid, uint32_t flags,
+               const char *cacert, const char *client_key,
+               const char *client_cert);
 
 /*
  * Close the device.

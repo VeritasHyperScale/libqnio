@@ -11,24 +11,15 @@
 #include "defs.h"
 #include "qnio.h"
 
-int 
-is_secure()
-{
-    if (access(SECURE_IMPL, F_OK) != 0)
-    {
-        nioDbg("Secure implementation not enabled\n");
-        return 0;
-    }
-    return 1;
-}
-
 SSL_CTX *
 init_server_ssl_ctx()
 {
     const SSL_METHOD *method;
     SSL_CTX *ctx = NULL;
 
-    nioDbg("initializing server ssl ctx %s\n", SERVER_KEY);
+    nioDbg("initializing server ssl ctx with key %s, cert %s\n",
+           SERVER_KEY, SERVER_CERT);
+
     if (access(SERVER_KEY, F_OK) != 0)
     {
         nioDbg("Server key not found");
@@ -69,27 +60,27 @@ init_server_ssl_ctx()
     return ctx;
 }
 
+/*
+ * None of the arguments can be NULL
+ */
 SSL_CTX *
-init_client_ssl_ctx(const char *instanceid)
+init_client_ssl_ctx(const char *cacert, const char *clientkey,
+             const char *clientcert)
 {
     const SSL_METHOD *method;
-    char clientkey[512] = { 0 };
-    char clientcert[512] = { 0 };
     SSL_CTX *ctx = NULL;
 
-    strcpy(clientkey, CLIENT_KEYSTORE);
-    strncat(clientkey, instanceid, 64);
-    strncat(clientkey, ".key", 4);
+    if (access(cacert, F_OK) != 0)
+    {
+        nioDbg("cacert not found %s", cacert);
+        return NULL;
+    }
 
     if (access(clientkey, F_OK) != 0)
     {
         nioDbg("Client key not found %s", clientkey);
         return NULL;
     }
-
-    strcpy(clientcert, CLIENT_KEYSTORE);
-    strncat(clientcert, instanceid, 64);
-    strncat(clientcert, ".cert", 5);
 
     if (access(clientcert, F_OK) != 0)
     {
@@ -116,12 +107,20 @@ init_client_ssl_ctx(const char *instanceid)
         return NULL;
     }
 
-    if (SSL_CTX_use_PrivateKey_file(ctx, clientkey, SSL_FILETYPE_PEM) < 0 ) 
+    if (SSL_CTX_use_PrivateKey_file(ctx, clientkey, SSL_FILETYPE_PEM) < 0) 
     {
-        nioDbg("Unable to use server key file");
+        nioDbg("Unable to use client key file");
         SSL_CTX_free(ctx);
         return NULL;
     }
+
+    if (SSL_CTX_load_verify_locations(ctx, cacert, NULL) < 0)
+    {
+        nioDbg("Unable to use client cacert file");
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+
     return ctx;
 }
 

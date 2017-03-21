@@ -5,6 +5,7 @@
 
 #define MAX_EPOLL_UNITS             16 
 #define QNIO_DEFAULT_PORT           "9999"
+#define SECURE_IMPL                 "/var/lib/libvxhs/secure"
 
 /*
  * An epoll unit to allow for scaling on server.
@@ -36,5 +37,6 @@ struct qnio_server_ctx {
 qnio_error_t qns_server_init(qnio_notify server_notify);
 qnio_error_t qns_server_start(char *node, char *port);
 qnio_error_t qns_send_resp(struct qnio_msg *msg);
+int is_secure();
 
 #endif /* QNIO_SERVER_HEADER_DEFINED */

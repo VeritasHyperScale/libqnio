@@ -28,7 +28,6 @@
 #define IO_POOL_BUF_SIZE            65536 
 #define BUF_ALIGN                   4096
 #define CRC_MODULO                  256
-#define SECURE_IMPL                 "/var/lib/libvxhs/secure"
 #define SERVER_KEY                  "/var/lib/libvxhs/server.key"
 #define SERVER_CERT                 "/var/lib/libvxhs/server.cert"
 #define CLIENT_KEYSTORE             "/var/lib/libvxhs/"
@@ -48,7 +47,6 @@ struct qnio_common_ctx {
     enum qnio_mode mode;
     uint64_t in, out; /* IN/OUT traffic counters */
     qnio_notify notify;
-    SSL_CTX *ssl_ctx;
 };
 
 enum NSReadState { /* Network stream read state */

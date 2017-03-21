@@ -5,6 +5,8 @@
 #ifndef IIO_HEADER_DEFINED
 #define IIO_HEADER_DEFINED
 
+#include <openssl/ssl.h>
+
 /*
  * Error values returned by library.
  */
@@ -97,6 +99,10 @@ struct qnio_msg
  */
 struct channel {
     struct channel_driver *cd;
+    char *cacert;
+    char *client_key;
+    char *client_cert;
+    SSL_CTX *ssl_ctx;
 };
 
 enum channel_type {
@@ -107,7 +113,8 @@ enum channel_type {
 typedef void (*qnio_notify) (struct qnio_msg *msg);
 struct channel_driver {
     enum channel_type chdrv_type;
-    struct channel *(*chdrv_open)(void *channel_arg);
+    struct channel *(*chdrv_open)(void *channel_arg, const char *cacert,
+                                  const char *client_key, const char *client_cert);
     void (*chdrv_close)(struct channel *channel);
     void (*chdrv_msg_resend_cleanup)(struct qnio_msg *);
     int (*chdrv_msg_send)(struct channel *channel, struct qnio_msg *msg);
