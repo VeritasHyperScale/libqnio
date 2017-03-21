@@ -11,17 +11,6 @@
 #include "defs.h"
 #include "qnio.h"
 
-int 
-is_secure()
-{
-    if (access(SECURE_IMPL, F_OK) != 0)
-    {
-        nioDbg("Secure implementation not enabled\n");
-        return 0;
-    }
-    return 1;
-}
-
 SSL_CTX *
 init_server_ssl_ctx()
 {

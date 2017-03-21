@@ -17,6 +17,17 @@ static struct qnio_server_ctx *qns_ctx;
 static struct qnio_common_ctx *cmn_ctx;
 SSL_CTX *ssl_ctx;
 
+int
+is_secure()
+{
+    if (access(SECURE_IMPL, F_OK) != 0)
+    {
+        nioDbg("Server not running in secure mode\n");
+        return 0;
+    }
+    return 1;
+}
+
 static void
 disconnect(struct conn *c)
 {

@@ -612,6 +612,19 @@ qnc_channel_open(void *channel_arg, const char *cacert, const char *client_key,
         return &netch->channel;
     }
 
+    /*
+     * Secure SSL communication is enabled by passing these three values.
+     * All, or none, should be passed.
+     */
+    if ( cacert || client_key || client_cert) {
+        if ( !cacert || !client_key || !client_cert)
+        {
+            nioDbg("Secure mode can only be enabled when cacert, client_key,"
+                   " and client_cert are all specified");
+            return NULL;
+        }
+    }
+
     netch = (struct network_channel *)malloc(sizeof (struct network_channel));
     memset(netch, 0, sizeof (struct network_channel));
     channel = &netch->channel;
@@ -620,7 +633,7 @@ qnc_channel_open(void *channel_arg, const char *cacert, const char *client_key,
      * Initialize SSL context for the new channel based on the certs and keys
      * passed by the user.
      */
-    if (!is_secure()) {
+    if (cacert == NULL) {
         nioDbg("Client is running in unsecure mode");
         channel->cacert = NULL;
         channel->client_key = NULL;

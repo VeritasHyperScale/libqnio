@@ -19,6 +19,5 @@ int compare_int(const void *x, const void *y);
 SSL_CTX *init_server_ssl_ctx(void); 
 SSL_CTX *init_client_ssl_ctx(const char *cacert, const char *client_key,
                       const char *client_cert); 
-int is_secure(); 
 
 #endif /* UTILS_HEADER_DEFINED */
