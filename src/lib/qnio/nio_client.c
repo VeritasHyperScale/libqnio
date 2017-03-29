@@ -802,12 +802,10 @@ qnc_driver_init(qnio_notify client_notify)
 }
 
 struct channel_driver *
-qnc_secure_driver_init(qnio_notify client_notify, const char *instance)
+qnc_secure_driver_init(qnio_notify client_notify)
 {
     struct channel_driver *drv = NULL;
 
     drv = qnc_driver_init(client_notify);
-    qnc_ctx->instance = (const char *) instance;
-
     return drv;
 }

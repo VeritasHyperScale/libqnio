@@ -409,7 +409,7 @@ client_callback(struct qnio_msg *msg)
 }
 
 int
-iio_init(int32_t version, iio_cb_t cb, const char *instance)
+iio_init(int32_t version, iio_cb_t cb)
 {
     if (version <  qnio_min_version || version > qnio_max_version) {
         nioDbg("Version [%d] not supported. Supported versions[%d - %d]",
@@ -429,7 +429,7 @@ iio_init(int32_t version, iio_cb_t cb, const char *instance)
     memset(apictx, 0, sizeof (struct ioapi_ctx));
     pthread_mutex_init(&apictx->dev_lock, NULL);
     apictx->io_cb = cb;
-    apictx->network_driver = qnc_secure_driver_init(client_callback, instance);
+    apictx->network_driver = qnc_secure_driver_init(client_callback);
     nioDbg("Created API context.\n");
     return 0;
 }

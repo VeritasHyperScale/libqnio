@@ -125,7 +125,7 @@ int main(int argc, char **argv)
         }
     }
 
-    ret = iio_init(34, iio_cb, instance);
+    ret = iio_init(34, iio_cb);
     if (ret != 0)
     {
         printf("Client init failed\n");
