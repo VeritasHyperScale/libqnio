@@ -36,7 +36,6 @@ char *target = "testdevice";
 struct timespec start;
 void *ctx = NULL;
 void *handle;
-char *instance = "testinstance";
 int reply = 0;
 struct timespec start;
 struct timespec estart;
