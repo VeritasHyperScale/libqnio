@@ -429,7 +429,11 @@ iio_init(int32_t version, iio_cb_t cb)
     memset(apictx, 0, sizeof (struct ioapi_ctx));
     pthread_mutex_init(&apictx->dev_lock, NULL);
     apictx->io_cb = cb;
-    apictx->network_driver = qnc_secure_driver_init(client_callback);
+    apictx->network_driver = qnc_driver_init(client_callback);
+    if (apictx->network_driver == NULL) {
+        nioDbg("Failed to get a new network context\n");
+        return -1;
+    }
     nioDbg("Created API context.\n");
     return 0;
 }
@@ -442,6 +446,7 @@ iio_fini(void)
         nioDbg("API context not initialized\n");
         return;
     }
+    qnc_driver_fini();
     pthread_mutex_destroy(&apictx->dev_lock);
     apictx->network_driver = NULL;
     apictx->io_cb = NULL;

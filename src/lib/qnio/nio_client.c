@@ -801,11 +801,18 @@ qnc_driver_init(qnio_notify client_notify)
     return &qnc_ctx->drv;
 }
 
-struct channel_driver *
-qnc_secure_driver_init(qnio_notify client_notify)
+void
+qnc_driver_fini()
 {
-    struct channel_driver *drv = NULL;
+    if (!qnc_ctx) {
+        nioDbg("Network driver not initialized\n");
+        return;
+    }
 
-    drv = qnc_driver_init(client_notify);
-    return drv;
+    pthread_mutex_destroy(&qnc_ctx->chnl_lock);
+    free(cmn_ctx);
+    cmn_ctx = NULL;
+    free(qnc_ctx);
+    qnc_ctx = NULL;
 }
+

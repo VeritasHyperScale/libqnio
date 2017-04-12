@@ -48,7 +48,7 @@ struct network_channel
 };
 
 struct channel_driver* qnc_driver_init(qnio_notify client_notify);
-struct channel_driver* qnc_secure_driver_init(qnio_notify client_notify);
+void qnc_driver_fini(void);
 extern struct qnio_client_ctx *qnc_ctx;
 
 #endif /* QNIO_CLIENT_HEADER_DEFINED */
