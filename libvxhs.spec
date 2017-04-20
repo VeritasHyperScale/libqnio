@@ -1,7 +1,7 @@
 Name:           libvxhs 
 Version:        1.0
 Release:        1%{?dist}
-Summary:        Network communication library used to route IO packets from qemu-kvm guests to a remote IO server 
+Summary:        The Veritas HyperScale storage connector library
 Group:          Development
 License:        GPLv2
 URL:            https://github.com/VeritasHyperScale/libqnio
@@ -9,7 +9,8 @@ Source:         %{name}-%{version}.tar.gz
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 %description
-libvxhs is a network communication library used to route IO packets from qemu-kvm guests to a remote IO server
+libvxhs is a storage connector library for accessing vdisks on Veritas
+HyperScale storage.
 
 %prep
 %setup
